@@ -1,0 +1,478 @@
+"""Orchestrator — state machine driving the test generation pipeline."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import sys
+from pathlib import Path
+
+from .agents.healer import HealerAgent
+from .agents.pom_builder import PomBuilderAgent
+from .agents.test_writer import TestWriterAgent
+from .classifier import classify_failure
+from .pom_contract_extractor import contracts_to_json, extract_contracts_from_dir
+from .profile import load_profile
+from .prompt_builder import PromptBuilder
+from .schemas.run_state import (
+    AgentInvocation,
+    FailureRecord,
+    PipelineState,
+    RunState,
+    TestResult,
+)
+from .state import StateManager
+from .test_plan_parser import parse_test_plan
+from .validator import run_all_checks
+
+logger = logging.getLogger(__name__)
+
+# Guardrails
+MAX_TOTAL_AGENT_INVOCATIONS = 8
+MAX_POM_BUILDER_ATTEMPTS = 3
+MAX_TEST_WRITER_ATTEMPTS = 3
+MAX_HEALER_ATTEMPTS = 2
+
+
+class Orchestrator:
+    """Drives the pipeline through its state machine."""
+
+    def __init__(
+        self,
+        profile_name: str,
+        test_plan_path: str,
+        ci_mode: bool = False,
+        profiles_dir: Path | None = None,
+        artifacts_dir: Path | None = None,
+    ):
+        self.profile = load_profile(profile_name, profiles_dir)
+        self.test_plan = parse_test_plan(test_plan_path)
+        self.ci_mode = ci_mode
+        self.permission_mode = "bypassPermissions" if ci_mode else "acceptEdits"
+
+        self.state_mgr = StateManager(artifacts_dir)
+        self.prompt_builder = PromptBuilder(self.profile)
+
+        # Agents
+        self.pom_builder = PomBuilderAgent(self.profile, self.prompt_builder)
+        self.test_writer = TestWriterAgent(self.profile, self.prompt_builder)
+        self.healer = HealerAgent(self.profile, self.prompt_builder)
+
+    async def run(self, resume_state: RunState | None = None) -> RunState:
+        """Execute the pipeline to completion or failure."""
+        state = resume_state or self.state_mgr.create_run(
+            profile_name=self.profile.name,
+            test_plan_path=str(self.test_plan.source_file),
+        )
+
+        logger.info("Pipeline run %s starting in state %s", state.run_id, state.state)
+
+        while state.state not in (PipelineState.DONE, PipelineState.FAILED):
+            # Guardrail: max total agent invocations
+            if state.total_agent_invocations >= MAX_TOTAL_AGENT_INVOCATIONS:
+                logger.error("Max total agent invocations (%d) reached", MAX_TOTAL_AGENT_INVOCATIONS)
+                state = self.state_mgr.transition(state, PipelineState.FAILED)
+                break
+
+            state = await self._step(state)
+
+        logger.info("Pipeline run %s finished: %s", state.run_id, state.state)
+        return state
+
+    async def _step(self, state: RunState) -> RunState:
+        """Execute one state transition."""
+        match state.state:
+            case PipelineState.ANALYZE_PLAN:
+                return await self._analyze_plan(state)
+            case PipelineState.CHECK_POM:
+                return await self._check_pom(state)
+            case PipelineState.BUILD_POM:
+                return await self._build_pom(state)
+            case PipelineState.VALIDATE_POM:
+                return await self._validate_pom(state)
+            case PipelineState.WRITE_TEST:
+                return await self._write_test(state)
+            case PipelineState.VALIDATE_TEST:
+                return await self._validate_test(state)
+            case PipelineState.RUN_TEST:
+                return await self._run_test(state)
+            case PipelineState.CLASSIFY_FAILURE:
+                return await self._classify_failure(state)
+            case PipelineState.HEAL:
+                return await self._heal(state)
+            case _:
+                logger.error("Unexpected state: %s", state.state)
+                return self.state_mgr.transition(state, PipelineState.FAILED)
+
+    async def _analyze_plan(self, state: RunState) -> RunState:
+        """Parse and validate the test plan."""
+        logger.info("Analyzing test plan: %d scenarios", len(self.test_plan.scenarios))
+        if not self.test_plan.scenarios:
+            logger.error("No scenarios found in test plan")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+        return self.state_mgr.transition(state, PipelineState.CHECK_POM)
+
+    async def _check_pom(self, state: RunState) -> RunState:
+        """Check if required PO directories exist for the test plan's components."""
+        po_base = self.profile.resolve_path(self.profile.po_base_dir)
+        missing_components: list[str] = []
+
+        for component in self.test_plan.components:
+            component_dir = po_base / component
+            if not component_dir.is_dir():
+                missing_components.append(component)
+
+        if missing_components:
+            logger.info("Missing PO directories: %s", missing_components)
+            return await self._ensure_git_branch(
+                self.state_mgr.transition(state, PipelineState.BUILD_POM)
+            )
+
+        logger.info("All PO directories exist, skipping to write_test")
+        return await self._ensure_git_branch(
+            self.state_mgr.transition(state, PipelineState.WRITE_TEST)
+        )
+
+    async def _ensure_git_branch(self, state: RunState) -> RunState:
+        """Create a git branch if not already on one."""
+        if state.git_branch:
+            return state
+
+        branch_name = f"pipeline/{state.run_id}"
+        proc = await asyncio.create_subprocess_exec(
+            "git", "checkout", "-b", branch_name,
+            cwd=str(self.profile.project_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+
+        if proc.returncode != 0:
+            logger.warning("Failed to create git branch %s (may already exist)", branch_name)
+        else:
+            logger.info("Created git branch: %s", branch_name)
+
+        state.git_branch = branch_name
+        self.state_mgr._persist(state)
+        return state
+
+    async def _build_pom(self, state: RunState) -> RunState:
+        """Invoke the POM Builder agent."""
+        if state.pom_builder_attempts >= MAX_POM_BUILDER_ATTEMPTS:
+            logger.error("Max POM Builder attempts reached")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.pom_builder_attempts += 1
+
+        # Build test plan summary for the agent
+        summary = _format_test_plan_summary(self.test_plan)
+
+        # Build existing PO summary
+        po_base = self.profile.resolve_path(self.profile.po_base_dir)
+        existing_contracts = extract_contracts_from_dir(po_base, self.profile.project_root)
+        existing_summary = contracts_to_json(existing_contracts) if existing_contracts else ""
+
+        result = await self.pom_builder.run(
+            test_plan_summary=summary,
+            existing_po_summary=existing_summary,
+            permission_mode=self.permission_mode,
+        )
+
+        state.record_invocation(AgentInvocation(
+            agent_name="pom_builder",
+            state=state.state,
+            success=result.success,
+            files_modified=result.files_modified,
+            error=result.result_text if not result.success else "",
+        ))
+
+        if not result.success:
+            # Check if the component directory was created despite the exit code 1.
+            # The agent may have created files but run out of turns before finishing.
+            # If any PO files now exist for the component, retry BUILD_POM so the
+            # next attempt can pick up where it left off (it will see existing contracts).
+            po_base = self.profile.resolve_path(self.profile.po_base_dir)
+            any_po_created = any(
+                (po_base / comp).is_dir()
+                for comp in self.test_plan.components
+            )
+            if any_po_created and state.pom_builder_attempts < MAX_POM_BUILDER_ATTEMPTS:
+                logger.warning(
+                    "POM Builder exited with error but PO files were created "
+                    "(attempt %d/%d). Retrying to complete remaining work.",
+                    state.pom_builder_attempts,
+                    MAX_POM_BUILDER_ATTEMPTS,
+                )
+                return self.state_mgr.transition(state, PipelineState.BUILD_POM)
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.generated_po_files.extend(result.files_modified)
+        return self.state_mgr.transition(state, PipelineState.VALIDATE_POM)
+
+    async def _validate_pom(self, state: RunState) -> RunState:
+        """Run deterministic validation on generated PO files."""
+        results = await run_all_checks(self.profile, state.generated_po_files)
+        state.validation_results.extend(results)
+
+        all_passed = all(r.passed for r in results)
+        if not all_passed:
+            failed = [r for r in results if not r.passed]
+            logger.error("POM validation failed: %s", [r.check_name for r in failed])
+            # POM validation failure is fatal — agent should have self-corrected
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        return self.state_mgr.transition(state, PipelineState.WRITE_TEST)
+
+    async def _write_test(self, state: RunState) -> RunState:
+        """Invoke the Test Writer agent."""
+        if state.test_writer_attempts >= MAX_TEST_WRITER_ATTEMPTS:
+            logger.error("Max Test Writer attempts reached")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.test_writer_attempts += 1
+
+        # Get POM contracts for the test writer
+        po_base = self.profile.resolve_path(self.profile.po_base_dir)
+        contracts = extract_contracts_from_dir(po_base, self.profile.project_root)
+        contracts_json = contracts_to_json(contracts)
+
+        # Full test plan text
+        plan_path = Path(self.test_plan.source_file)
+        test_plan_text = plan_path.read_text(encoding="utf-8")
+
+        # Snapshot existing spec files before running the agent so we can detect
+        # newly created files regardless of whether the agent mentions them in output.
+        project_root = self.profile.project_root
+        test_dir = project_root / self.profile.test_dir
+        existing_specs = _snapshot_spec_files(test_dir, project_root)
+
+        result = await self.test_writer.run(
+            test_plan_text=test_plan_text,
+            pom_contracts_json=contracts_json,
+            permission_mode=self.permission_mode,
+        )
+
+        state.record_invocation(AgentInvocation(
+            agent_name="test_writer",
+            state=state.state,
+            success=result.success,
+            files_modified=result.files_modified,
+            error=result.result_text if not result.success else "",
+        ))
+
+        if not result.success:
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        # Find new spec files via filesystem diff — more reliable than text extraction.
+        new_specs = _snapshot_spec_files(test_dir, project_root)
+        diff_files = sorted(f for f in new_specs if f not in existing_specs)
+        detected_files = diff_files or result.files_modified
+        logger.info("Test writer created %d new spec file(s): %s", len(detected_files), detected_files)
+        state.generated_test_files.extend(detected_files)
+
+        return self.state_mgr.transition(state, PipelineState.VALIDATE_TEST)
+
+    async def _validate_test(self, state: RunState) -> RunState:
+        """Run deterministic validation on generated test files."""
+        results = await run_all_checks(self.profile, state.generated_test_files)
+        state.validation_results.extend(results)
+
+        all_passed = all(r.passed for r in results)
+        if not all_passed:
+            failed = [r for r in results if not r.passed]
+            logger.error("Test validation failed: %s", [r.check_name for r in failed])
+            # Retry via write_test (one retry)
+            if state.test_writer_attempts < MAX_TEST_WRITER_ATTEMPTS:
+                return self.state_mgr.transition(state, PipelineState.WRITE_TEST)
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        return self.state_mgr.transition(state, PipelineState.RUN_TEST)
+
+    async def _run_test(self, state: RunState) -> RunState:
+        """Execute generated tests with Playwright."""
+        test_files = state.generated_test_files
+        if not test_files:
+            logger.error("No test files to run")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        files_arg = " ".join(f'"{f}"' for f in test_files)
+        cmd = f"npx playwright test {files_arg} --reporter=json"
+
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            cwd=str(self.profile.project_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+        stdout_text = (stdout or b"").decode("utf-8", errors="replace")
+        stderr_text = (stderr or b"").decode("utf-8", errors="replace")
+
+        # Parse JSON report
+        json_report = None
+        try:
+            json_report = json.loads(stdout_text)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        passed = proc.returncode == 0
+
+        # Extract human-readable error text from the JSON report when available.
+        # Playwright writes failure details to stdout (JSON), not stderr, so we
+        # must pull them from the report for the classifier to work correctly.
+        error_text = ""
+        if not passed:
+            if json_report:
+                error_text = _extract_errors_from_json_report(json_report)
+            # Fall back to stderr if the JSON report had no useful messages
+            if not error_text:
+                error_text = stderr_text
+
+        test_result = TestResult(
+            passed=passed,
+            error_output=error_text,
+            json_report=json_report,
+        )
+
+        if json_report and "stats" in json_report:
+            stats = json_report["stats"]
+            test_result.total = stats.get("expected", 0) + stats.get("unexpected", 0)
+            test_result.failed_count = stats.get("unexpected", 0)
+
+        state.test_results.append(test_result)
+
+        if passed:
+            logger.info("All tests passed!")
+            return self.state_mgr.transition(state, PipelineState.DONE)
+
+        logger.warning("Tests failed (%d failures)", test_result.failed_count)
+        return self.state_mgr.transition(state, PipelineState.CLASSIFY_FAILURE)
+
+    async def _classify_failure(self, state: RunState) -> RunState:
+        """Classify the test failure and decide routing."""
+        if not state.test_results:
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        last_result = state.test_results[-1]
+        classified = classify_failure(last_result.error_output)
+
+        failure = FailureRecord(
+            category=classified.category,
+            message=classified.message,
+            file_paths=classified.file_paths,
+            routed_to=classified.route_to,
+        )
+
+        # Check for repeated identical failure
+        if state.has_repeated_failure(classified.category, classified.message):
+            logger.error("Repeated failure detected: %s — aborting", classified.category)
+            state.record_failure(failure)
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.record_failure(failure)
+
+        match classified.route_to:
+            case "healer":
+                return self.state_mgr.transition(state, PipelineState.HEAL)
+            case "pom_builder":
+                return self.state_mgr.transition(state, PipelineState.BUILD_POM)
+            case "abort" | _:
+                return self.state_mgr.transition(state, PipelineState.FAILED)
+
+    async def _heal(self, state: RunState) -> RunState:
+        """Invoke the Healer agent to patch failing tests/POs."""
+        if state.healer_attempts >= MAX_HEALER_ATTEMPTS:
+            logger.error("Max Healer attempts reached")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.healer_attempts += 1
+
+        last_failure = state.failure_history[-1] if state.failure_history else None
+        if not last_failure:
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        last_test = state.test_results[-1] if state.test_results else None
+        error_output = last_test.error_output if last_test else last_failure.message
+
+        result = await self.healer.run(
+            error_output=error_output,
+            failure_category=last_failure.category,
+            relevant_files=last_failure.file_paths,
+            permission_mode=self.permission_mode,
+        )
+
+        state.record_invocation(AgentInvocation(
+            agent_name="healer",
+            state=state.state,
+            success=result.success,
+            files_modified=result.files_modified,
+            error=result.result_text if not result.success else "",
+        ))
+
+        if not result.success:
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        # After healing, validate then re-run tests
+        heal_files = state.generated_po_files + state.generated_test_files
+        results = await run_all_checks(self.profile, heal_files)
+        state.validation_results.extend(results)
+
+        if not all(r.passed for r in results):
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        return self.state_mgr.transition(state, PipelineState.RUN_TEST)
+
+
+def _snapshot_spec_files(test_dir: Path, project_root: Path) -> set[str]:
+    """Return relative paths (from project_root) of all .spec.ts files under test_dir."""
+    if not test_dir.is_dir():
+        return set()
+    return {
+        str(p.relative_to(project_root)).replace("\\", "/")
+        for p in test_dir.rglob("*.spec.ts")
+    }
+
+
+def _extract_errors_from_json_report(report: dict) -> str:
+    """Walk a Playwright JSON report and collect error messages from failed tests."""
+    messages: list[str] = []
+
+    def _walk_suites(suites: list[dict]) -> None:
+        for suite in suites:
+            _walk_suites(suite.get("suites", []))
+            for spec in suite.get("specs", []):
+                for test in spec.get("tests", []):
+                    for result in test.get("results", []):
+                        err = result.get("error") or {}
+                        msg = err.get("message", "")
+                        if msg and msg not in messages:
+                            messages.append(msg)
+                        # Also check step-level errors
+                        for step in result.get("steps", []):
+                            serr = step.get("error") or {}
+                            smsg = serr.get("message", "")
+                            if smsg and smsg not in messages:
+                                messages.append(smsg)
+
+    _walk_suites(report.get("suites", []))
+    return "\n".join(messages[:10])  # Limit to first 10 unique errors
+
+
+def _format_test_plan_summary(test_plan) -> str:
+    """Format test plan scenarios into a readable summary for agents."""
+    lines: list[str] = []
+    for s in test_plan.scenarios:
+        lines.append(f"## {s.id}: {s.scenario_name}")
+        lines.append(f"Suite: {s.suite} | Feature: {s.feature} | Component: {s.component}")
+        if s.variables:
+            lines.append(f"Variables: {s.variables}")
+        if s.setup:
+            lines.append(f"Setup: {s.setup}")
+        if s.background:
+            lines.append(f"Background:\n{s.background}")
+        for step in s.steps:
+            lines.append(f"  {step}")
+        lines.append("")
+    return "\n".join(lines)

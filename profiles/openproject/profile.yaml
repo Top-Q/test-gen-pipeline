@@ -1,0 +1,32 @@
+name: openproject
+stack: rails
+project_root: "C:\\Users\\itaiag\\git\\node\\playwright-typescript"
+po_base_dir: src/po/openproject
+test_dir: tests/ui
+barrel_export: internals.ts
+fixture_path: tests/ui/fixtures.ts
+base_url: "http://localhost:8090"
+auth:
+  strategy: session_cookie
+  username: admin
+  password: admin
+validation:
+  lint_command: "npx eslint {files}"
+  typecheck_command: "npx tsc --noEmit"
+  structural_checks:
+    - name: no-expect-in-po
+      pattern: "import.*expect.*from.*@playwright/test"
+      file_glob: "src/po/openproject/**/*.ts"
+      must_match: false
+      error_message: "Page objects must not import expect from @playwright/test"
+    - name: locators-have-describe
+      pattern: "\\.describe\\("
+      file_glob: "src/po/openproject/**/*.ts"
+      must_match: true
+      error_message: "All locators should use .describe() for trace clarity"
+    - name: waitforload-exists
+      pattern: "async waitForLoad\\("
+      file_glob: "src/po/openproject/**/*.ts"
+      must_match: true
+      error_message: "Every page/component must implement waitForLoad()"
+knowledge_files: {}
