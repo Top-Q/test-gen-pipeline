@@ -33,6 +33,12 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ knowledge['source-code-map'] }}
 {% endif %}
 
+## Browser Investigation (Live DOM)
+
+{% if knowledge.get('browser-tools') %}
+{{ knowledge['browser-tools'] }}
+{% endif %}
+
 ## Architecture Rules
 
 {% if knowledge.get('architecture') %}
@@ -79,12 +85,13 @@ Before completing, run these commands and fix any errors:
 ## Rules
 
 1. **Read source code before writing locators.** For every page you are building, read the relevant ERB views, Ruby components, and Stimulus controllers from the application source code. Extract element IDs, CSS classes, data attributes, and ARIA attributes from the actual source — do not guess locators from naming conventions alone.
-2. All page objects extend `BasePage<T>` with own type as generic parameter
-3. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
-4. Assertions belong in tests only — page objects NEVER import `expect`
-5. Locators are `private readonly`, exposed via getter methods
-6. When source code provides an element ID, prefer `locator('#id')` over `getByRole()` to avoid strict-mode ambiguity. Use `getByRole()` when IDs are not available.
-7. Navigation methods return the destination page object (fluent pattern)
-8. Every page/component implements `waitForLoad()` returning `this as T`
-9. All locators use `.describe()` for trace clarity
-10. All async functions must use `await`
+2. **After reading source code, use `playwright-cli` to take a snapshot of each page you're building POs for.** Compare the live ARIA tree against what you derived from source — fix any discrepancies before writing locators.
+3. All page objects extend `BasePage<T>` with own type as generic parameter
+4. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
+5. Assertions belong in tests only — page objects NEVER import `expect`
+6. Locators are `private readonly`, exposed via getter methods
+7. When source code provides an element ID, prefer `locator('#id')` over `getByRole()` to avoid strict-mode ambiguity. Use `getByRole()` when IDs are not available.
+8. Navigation methods return the destination page object (fluent pattern)
+9. Every page/component implements `waitForLoad()` returning `this as T`
+10. All locators use `.describe()` for trace clarity
+11. All async functions must use `await`

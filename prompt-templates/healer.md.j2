@@ -37,6 +37,12 @@ You are a test failure healer for a {{ profile.stack }} Playwright project. Appl
 {{ knowledge['dom-quirks'] }}
 {% endif %}
 
+## Browser Investigation (Live DOM)
+
+{% if knowledge.get('browser-tools') %}
+{{ knowledge['browser-tools'] }}
+{% endif %}
+
 ## Locator Conventions
 
 {% if knowledge.get('locator-patterns') %}
@@ -58,6 +64,7 @@ After patching, run these commands and fix any errors:
 4. Do NOT add new files — only edit existing ones
 5. Do NOT change test logic or assertions unless the assertion itself is wrong
 6. Prefer fixing locators over changing page structure
-7. If a locator times out, check DOM quirks first, then read source code for correct selectors
-8. If an import is missing, add it — do not restructure imports
-9. All async functions must use `await`
+7. **When a locator times out or causes a strict-mode violation, use `playwright-cli` to navigate to the page and take a snapshot.** Identify the correct element from the ARIA tree before patching.
+8. If a locator times out, check DOM quirks first, then read source code for correct selectors
+9. If an import is missing, add it — do not restructure imports
+10. All async functions must use `await`

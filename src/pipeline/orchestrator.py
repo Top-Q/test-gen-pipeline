@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -61,6 +62,8 @@ class Orchestrator:
 
     async def run(self, resume_state: RunState | None = None) -> RunState:
         """Execute the pipeline to completion or failure."""
+        self._check_playwright_cli()
+
         state = resume_state or self.state_mgr.create_run(
             profile_name=self.profile.name,
             test_plan_path=str(self.test_plan.source_file),
@@ -79,6 +82,16 @@ class Orchestrator:
 
         logger.info("Pipeline run %s finished: %s", state.run_id, state.state)
         return state
+
+    @staticmethod
+    def _check_playwright_cli() -> None:
+        """Warn if playwright-cli is not available on PATH."""
+        if shutil.which("playwright-cli") is None:
+            logger.warning(
+                "playwright-cli not found on PATH. "
+                "Install with: npm install -g @playwright/cli  "
+                "Agents will not be able to inspect the live DOM."
+            )
 
     async def _step(self, state: RunState) -> RunState:
         """Execute one state transition."""

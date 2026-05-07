@@ -14,6 +14,9 @@ dependencies = [
     "jinja2>=3.1",
     "click>=8.1",
 ]
+# Peer dependency (npm): @playwright/cli >=0.1.8
+# Install with: npm install -g @playwright/cli
+# Required for agents to inspect the live DOM when building/healing locators.
 
 [project.optional-dependencies]
 dev = [
