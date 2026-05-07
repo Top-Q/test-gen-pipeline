@@ -25,6 +25,12 @@ You are a test failure healer for a {{ profile.stack }} Playwright project. Appl
 - **Barrel export:** `{{ profile.barrel_export }}`
 {% endif %}
 
+## Source Code Navigation
+
+{% if knowledge.get('source-code-map') %}
+{{ knowledge['source-code-map'] }}
+{% endif %}
+
 ## DOM Quirks
 
 {% if knowledge.get('dom-quirks') %}
@@ -47,10 +53,11 @@ After patching, run these commands and fix any errors:
 ## Rules — STRICTLY FOLLOW
 
 1. **Minimal patch only** — change the fewest lines possible to fix the error
-2. Do NOT refactor, rename, or "improve" code beyond the fix
-3. Do NOT add new files — only edit existing ones
-4. Do NOT change test logic or assertions unless the assertion itself is wrong
-5. Prefer fixing locators over changing page structure
-6. If a locator times out, check for DOM quirks before changing the locator strategy
-7. If an import is missing, add it — do not restructure imports
-8. All async functions must use `await`
+2. **When fixing locator failures, read the application source code** for the relevant module to find correct element IDs, CSS classes, and ARIA attributes. Do not guess replacement locators.
+3. Do NOT refactor, rename, or "improve" code beyond the fix
+4. Do NOT add new files — only edit existing ones
+5. Do NOT change test logic or assertions unless the assertion itself is wrong
+6. Prefer fixing locators over changing page structure
+7. If a locator times out, check DOM quirks first, then read source code for correct selectors
+8. If an import is missing, add it — do not restructure imports
+9. All async functions must use `await`

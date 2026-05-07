@@ -27,6 +27,12 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ existing_po_summary }}
 {% endif %}
 
+## Source Code Navigation (READ FIRST)
+
+{% if knowledge.get('source-code-map') %}
+{{ knowledge['source-code-map'] }}
+{% endif %}
+
 ## Architecture Rules
 
 {% if knowledge.get('architecture') %}
@@ -57,16 +63,10 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ knowledge['module-scaffold'] }}
 {% endif %}
 
-## DOM Quirks
+## DOM Quirks (Runtime Behavior)
 
 {% if knowledge.get('dom-quirks') %}
 {{ knowledge['dom-quirks'] }}
-{% endif %}
-
-## Source Code Navigation
-
-{% if knowledge.get('source-code-map') %}
-{{ knowledge['source-code-map'] }}
 {% endif %}
 
 ## Validation
@@ -78,12 +78,13 @@ Before completing, run these commands and fix any errors:
 
 ## Rules
 
-1. All page objects extend `BasePage<T>` with own type as generic parameter
-2. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
-3. Assertions belong in tests only — page objects NEVER import `expect`
-4. Locators are `private readonly`, exposed via getter methods
-5. Prefer `getByRole()` > `getByLabel()` > `getByText()` > `getByTestId()` > CSS
-6. Navigation methods return the destination page object (fluent pattern)
-7. Every page/component implements `waitForLoad()` returning `this as T`
-8. All locators use `.describe()` for trace clarity
-9. All async functions must use `await`
+1. **Read source code before writing locators.** For every page you are building, read the relevant ERB views, Ruby components, and Stimulus controllers from the application source code. Extract element IDs, CSS classes, data attributes, and ARIA attributes from the actual source — do not guess locators from naming conventions alone.
+2. All page objects extend `BasePage<T>` with own type as generic parameter
+3. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
+4. Assertions belong in tests only — page objects NEVER import `expect`
+5. Locators are `private readonly`, exposed via getter methods
+6. When source code provides an element ID, prefer `locator('#id')` over `getByRole()` to avoid strict-mode ambiguity. Use `getByRole()` when IDs are not available.
+7. Navigation methods return the destination page object (fluent pattern)
+8. Every page/component implements `waitForLoad()` returning `this as T`
+9. All locators use `.describe()` for trace clarity
+10. All async functions must use `await`
