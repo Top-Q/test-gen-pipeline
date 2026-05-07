@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import tempfile
 from contextlib import contextmanager
@@ -93,6 +94,7 @@ class AgentRunner:
                 model=model,
             )
 
+            claudecode_val = os.environ.pop("CLAUDECODE", None)
             try:
                 async for message in query(prompt=prompt, options=options):
                     if isinstance(message, AssistantMessage):
@@ -123,6 +125,9 @@ class AgentRunner:
                     success=False,
                     result_text=str(e),
                 )
+            finally:
+                if claudecode_val is not None:
+                    os.environ["CLAUDECODE"] = claudecode_val
 
 
 def _extract_file_paths(text: str) -> list[str]:
