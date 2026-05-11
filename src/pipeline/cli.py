@@ -11,6 +11,7 @@ from pathlib import Path
 import click
 
 from .orchestrator import Orchestrator
+from .reporter import QuietReporter, RichConsoleReporter
 from .state import StateManager
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,14 @@ def _setup_logging(verbose: bool) -> None:
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
-def main(verbose: bool) -> None:
+@click.option("--quiet", "-q", is_flag=True, help="Suppress rich progress output")
+@click.pass_context
+def main(ctx: click.Context, verbose: bool, quiet: bool) -> None:
     """Agentic Playwright test generation pipeline."""
     _setup_logging(verbose)
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+    ctx.obj["quiet"] = quiet
 
 
 @main.command()
@@ -39,7 +45,9 @@ def main(verbose: bool) -> None:
 @click.option("--resume", "resume_id", default=None, help="Resume a failed run by ID")
 @click.option("--profiles-dir", default=None, type=click.Path(exists=True), help="Custom profiles directory")
 @click.option("--artifacts-dir", default=None, type=click.Path(), help="Custom artifacts directory")
+@click.pass_context
 def run(
+    ctx: click.Context,
     profile: str,
     plan: str,
     ci: bool,
@@ -51,12 +59,21 @@ def run(
     profiles_path = Path(profiles_dir) if profiles_dir else None
     artifacts_path = Path(artifacts_dir) if artifacts_dir else None
 
+    # Create reporter based on flags
+    quiet = ctx.obj.get("quiet", False)
+    verbose = ctx.obj.get("verbose", False)
+    if quiet:
+        reporter = QuietReporter()
+    else:
+        reporter = RichConsoleReporter(verbose=verbose)
+
     orchestrator = Orchestrator(
         profile_name=profile,
         test_plan_path=plan,
         ci_mode=ci,
         profiles_dir=profiles_path,
         artifacts_dir=artifacts_path,
+        reporter=reporter,
     )
 
     # Resume from existing state if requested
@@ -84,7 +101,8 @@ def run(
 @click.option("--plan", required=True, type=click.Path(exists=True), help="Path to test plan .md file")
 @click.option("--ci", is_flag=True, help="CI mode")
 @click.option("--profiles-dir", default=None, type=click.Path(exists=True))
-def build_pom(profile: str, plan: str, ci: bool, profiles_dir: str | None) -> None:
+@click.pass_context
+def build_pom(ctx: click.Context, profile: str, plan: str, ci: bool, profiles_dir: str | None) -> None:
     """Run only the POM Builder step."""
     from .pom_contract_extractor import contracts_to_json, extract_contracts_from_dir
     from .profile import load_profile
@@ -93,11 +111,15 @@ def build_pom(profile: str, plan: str, ci: bool, profiles_dir: str | None) -> No
     from .test_plan_parser import parse_test_plan
     from .orchestrator import _format_test_plan_summary
 
+    quiet = ctx.obj.get("quiet", False)
+    verbose = ctx.obj.get("verbose", False)
+    reporter = QuietReporter() if quiet else RichConsoleReporter(verbose=verbose)
+
     profiles_path = Path(profiles_dir) if profiles_dir else None
     prof = load_profile(profile, profiles_path)
     test_plan = parse_test_plan(plan)
     prompt_builder = PromptBuilder(prof)
-    agent = PomBuilderAgent(prof, prompt_builder)
+    agent = PomBuilderAgent(prof, prompt_builder, reporter=reporter)
 
     summary = _format_test_plan_summary(test_plan)
     po_base = prof.resolve_path(prof.po_base_dir)
@@ -116,7 +138,8 @@ def build_pom(profile: str, plan: str, ci: bool, profiles_dir: str | None) -> No
 @click.option("--plan", required=True, type=click.Path(exists=True), help="Path to test plan .md file")
 @click.option("--ci", is_flag=True, help="CI mode")
 @click.option("--profiles-dir", default=None, type=click.Path(exists=True))
-def write_test(profile: str, plan: str, ci: bool, profiles_dir: str | None) -> None:
+@click.pass_context
+def write_test(ctx: click.Context, profile: str, plan: str, ci: bool, profiles_dir: str | None) -> None:
     """Run only the Test Writer step."""
     from .pom_contract_extractor import contracts_to_json, extract_contracts_from_dir
     from .profile import load_profile
@@ -124,11 +147,15 @@ def write_test(profile: str, plan: str, ci: bool, profiles_dir: str | None) -> N
     from .agents.test_writer import TestWriterAgent
     from .test_plan_parser import parse_test_plan
 
+    quiet = ctx.obj.get("quiet", False)
+    verbose = ctx.obj.get("verbose", False)
+    reporter = QuietReporter() if quiet else RichConsoleReporter(verbose=verbose)
+
     profiles_path = Path(profiles_dir) if profiles_dir else None
     prof = load_profile(profile, profiles_path)
     test_plan = parse_test_plan(plan)
     prompt_builder = PromptBuilder(prof)
-    agent = TestWriterAgent(prof, prompt_builder)
+    agent = TestWriterAgent(prof, prompt_builder, reporter=reporter)
 
     po_base = prof.resolve_path(prof.po_base_dir)
     contracts = extract_contracts_from_dir(po_base, prof.project_root)
@@ -173,11 +200,16 @@ def validate(profile: str, files: str, profiles_dir: str | None) -> None:
 @click.option("--ci", is_flag=True, help="CI mode")
 @click.option("--profiles-dir", default=None, type=click.Path(exists=True))
 @click.option("--artifacts-dir", default=None, type=click.Path())
-def heal(profile: str, run_id: str, ci: bool, profiles_dir: str | None, artifacts_dir: str | None) -> None:
+@click.pass_context
+def heal(ctx: click.Context, profile: str, run_id: str, ci: bool, profiles_dir: str | None, artifacts_dir: str | None) -> None:
     """Run the Healer on a failed run."""
     from .profile import load_profile
     from .prompt_builder import PromptBuilder
     from .agents.healer import HealerAgent
+
+    quiet = ctx.obj.get("quiet", False)
+    verbose = ctx.obj.get("verbose", False)
+    reporter = QuietReporter() if quiet else RichConsoleReporter(verbose=verbose)
 
     profiles_path = Path(profiles_dir) if profiles_dir else None
     artifacts_path = Path(artifacts_dir) if artifacts_dir else None
@@ -195,7 +227,7 @@ def heal(profile: str, run_id: str, ci: bool, profiles_dir: str | None, artifact
     error_output = last_test.error_output if last_test else last_failure.message
 
     prompt_builder = PromptBuilder(prof)
-    agent = HealerAgent(prof, prompt_builder)
+    agent = HealerAgent(prof, prompt_builder, reporter=reporter)
 
     permission = "bypassPermissions" if ci else "acceptEdits"
     result = asyncio.run(agent.run(

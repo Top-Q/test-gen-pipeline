@@ -61,3 +61,13 @@ Before completing, run these commands and fix any errors:
 7. All async functions must use `await` — no floating promises
 8. Locator assertions use Playwright's `expect()` auto-waiting matchers
 9. Tag tests appropriately: `@ui`, feature tag, `@regression`
+
+## Completion Report
+
+When all files are written and validation passes, output this exact JSON block as the **last thing you write** — nothing after it:
+
+```json
+{"pipeline_output": {"created_files": ["tests/ui/workpackage/workpackage-crud.spec.ts"]}}
+```
+
+Replace the example path with the actual relative paths (from project root) of every `.spec.ts` file you created. This is required — the pipeline uses it to know which files to run.

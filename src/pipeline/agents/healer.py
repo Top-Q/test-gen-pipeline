@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ..prompt_builder import PromptBuilder
 from ..schemas.profile_schema import ProfileConfig
 from .base import AgentResult, AgentRunner
+
+if TYPE_CHECKING:
+    from ..reporter import PipelineReporter
 
 HEALER_TOOLS = ["Read", "Edit", "Bash", "Glob", "Grep"]
 HEALER_MODEL = "claude-sonnet-4-20250514"
@@ -14,10 +19,15 @@ HEALER_MAX_TURNS = 8
 class HealerAgent:
     """Invokes Claude to patch files and fix test failures."""
 
-    def __init__(self, profile: ProfileConfig, prompt_builder: PromptBuilder):
+    def __init__(
+        self,
+        profile: ProfileConfig,
+        prompt_builder: PromptBuilder,
+        reporter: PipelineReporter | None = None,
+    ):
         self.profile = profile
         self.prompt_builder = prompt_builder
-        self.runner = AgentRunner(cwd=profile.project_root)
+        self.runner = AgentRunner(cwd=profile.project_root, reporter=reporter)
 
     async def run(
         self,

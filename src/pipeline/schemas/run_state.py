@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 class PipelineState(StrEnum):
     """States in the pipeline state machine."""
 
+    PREFLIGHT = "preflight"
     ANALYZE_PLAN = "analyze_plan"
     CHECK_POM = "check_pom"
     BUILD_POM = "build_pom"
@@ -54,6 +55,10 @@ class AgentInvocation(BaseModel):
     success: bool = False
     files_modified: list[str] = []
     error: str = ""
+    result_text: str = ""  # Full agent output — always stored for resume/re-parsing
+    cost_usd: float = 0.0
+    turns: int = 0
+    tool_calls: list[str] = []
 
 
 class FailureRecord(BaseModel):
@@ -71,7 +76,7 @@ class RunState(BaseModel):
     run_id: str
     profile_name: str
     test_plan_path: str
-    state: PipelineState = PipelineState.ANALYZE_PLAN
+    state: PipelineState = PipelineState.PREFLIGHT
     git_branch: str = ""
     generated_po_files: list[str] = []
     generated_test_files: list[str] = []
@@ -92,6 +97,10 @@ class RunState(BaseModel):
     @property
     def total_agent_invocations(self) -> int:
         return len(self.agent_invocations)
+
+    @property
+    def total_cost_usd(self) -> float:
+        return sum(inv.cost_usd for inv in self.agent_invocations)
 
     def record_invocation(self, invocation: AgentInvocation) -> None:
         """Add an agent invocation record."""

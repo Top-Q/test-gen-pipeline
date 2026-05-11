@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ..prompt_builder import PromptBuilder
 from ..schemas.profile_schema import ProfileConfig
 from .base import AgentResult, AgentRunner
+
+if TYPE_CHECKING:
+    from ..reporter import PipelineReporter
 
 TEST_WRITER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 TEST_WRITER_MODEL = "claude-sonnet-4-20250514"
@@ -14,10 +19,15 @@ TEST_WRITER_MAX_TURNS = 20
 class TestWriterAgent:
     """Invokes Claude to generate Playwright test files."""
 
-    def __init__(self, profile: ProfileConfig, prompt_builder: PromptBuilder):
+    def __init__(
+        self,
+        profile: ProfileConfig,
+        prompt_builder: PromptBuilder,
+        reporter: PipelineReporter | None = None,
+    ):
         self.profile = profile
         self.prompt_builder = prompt_builder
-        self.runner = AgentRunner(cwd=profile.project_root)
+        self.runner = AgentRunner(cwd=profile.project_root, reporter=reporter)
 
     async def run(
         self,

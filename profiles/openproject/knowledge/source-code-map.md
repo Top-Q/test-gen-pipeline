@@ -142,34 +142,52 @@ OpenProject uses GitHub's Primer design system. When source code uses Primer com
 
 **URL:** `/projects/<id>/work_packages`
 
-### Views & Components
+**Critical note:** The WP list and table are **fully Angular-rendered** — there is no server-side ERB table. The Angular `<wp-table>` component writes rows directly to the DOM via JavaScript builders. Do NOT look for ERB table structure; read the Angular builder files and HTML templates listed below instead.
+
+### Create Dialog
+
 | File | Contains |
 |------|----------|
-| `app/views/work_packages/index.html.erb` | Work packages list (Angular-rendered) |
-| `app/views/work_packages/show.html.erb` | Single work package view |
-| `app/views/work_packages/split_view.html.erb` | Split view layout |
-| `app/components/work_packages/split_view_component.rb` | Split view component |
-| `app/components/work_packages/status_button_component.rb` | Status badge/button |
-| `app/components/work_packages/dialogs/create_dialog_component.rb` | Create WP dialog |
-| `app/components/work_packages/dialogs/create_form_component.rb` | Create WP form |
-| `app/components/work_packages/date_picker/form_component.rb` | Date picker form |
-| `app/components/work_packages/progress/base_modal_component.rb` | Progress modal |
-| `app/components/work_packages/activities_tab/index_component.rb` | Activities tab |
+| `app/components/work_packages/dialogs/create_dialog_component.html.erb` | Primer `Dialog` container: `id="create-work-package-dialog"`. Footer: Cancel button has `data-close-dialog-id="create-work-package-dialog"`; Create/Save submit button has `form="create-work-package-form"` and `type="submit"` |
+| `app/components/work_packages/dialogs/create_form_component.html.erb` | Form: `id="create-work-package-form"`, `data-controller="work-packages--create-dialog"`. Renders `WorkPackages::Dialogs::CreateForm` which holds the type selector, subject, and description fields |
+| `frontend/src/stimulus/controllers/dynamic/work-packages/create-dialog.controller.ts` | Stimulus controller identifier `work-packages--create-dialog`. Refreshes the form on type change via Turbo |
 
-### Stimulus Controllers
+### Create Button (WP list toolbar)
+
 | File | Contains |
 |------|----------|
-| `frontend/src/stimulus/controllers/dynamic/work-packages/create-dialog.controller.ts` | Create dialog behavior |
-| `frontend/src/stimulus/controllers/dynamic/work-packages/date-picker/` | Date picker controllers |
-| `frontend/src/stimulus/controllers/dynamic/work-packages/activities-tab/` | Activities tab controllers |
-| `frontend/src/stimulus/controllers/dynamic/work-packages/progress/` | Progress modal controllers |
+| `frontend/src/app/features/work-packages/components/wp-buttons/wp-create-button/wp-create-button.html` | `<button class="button -primary add-work-package">` with directive `opTypesCreateDropdown`. Clicking opens a type-selection dropdown (role `menuitem`); selecting a type opens `#create-work-package-dialog` |
 
-### Angular Components
+### Table & Rows (Angular, read these for DOM structure)
+
 | File | Contains |
 |------|----------|
-| `frontend/src/app/features/work-packages/` | Full Angular WP module: table, detail view, inline editing |
+| `frontend/src/app/features/work-packages/routing/wp-list-view/wp-list-view.component.html` | Renders `<wp-table class="work-packages-split-view--tabletimeline-content">` |
+| `frontend/src/app/features/work-packages/components/wp-fast-table/builders/rows/single-row-builder.ts` | Each WP row is a `<tr>` with: CSS class `wp-table--row`, `wp--row`, `wp-row-{id}`, `issue`; attribute `data-work-package-id="{id}"` |
+| `frontend/src/app/features/work-packages/components/wp-table/table-actions/table-action.ts` | CSS class constants: context-menu TD = `wp-table--context-menu-td`; context-menu span = `wp-table--context-menu-span`; context-menu link = `wp-table-context-menu-link`; icon = `wp-table-context-menu-icon` |
+| `frontend/src/app/features/work-packages/components/wp-table/table-actions/actions/context-menu-table-action.ts` | Renders `<a class="wp-table-context-menu-link wp-table-context-menu-icon">` (the "⋯" button per row); title is `label_open_context_menu` i18n key |
 
-**Note:** Work packages use Angular extensively — the table and detail views are Angular components, not server-rendered ERB. Read the Angular component templates for DOM structure.
+### Locator quick-reference
+
+| Element | Locator |
+|---------|---------|
+| WP list table body rows | `tr.wp-table--row` |
+| Specific WP row by ID | `tr[data-work-package-id="123"]` |
+| Subject cell in a row | `td.wp-table--cell-td.subject` inside the row |
+| Context menu button per row | `a.wp-table-context-menu-link` inside the row |
+| Create button | `.add-work-package` |
+| Create dialog | `[id="create-work-package-dialog"]` (role `dialog`) |
+| Type selector in dialog | inside the form, rendered by `CreateForm` — use ng-select/autocompleter pattern (`.ng-dropdown-panel .ng-option`) |
+| Subject input | `getByRole('textbox', { name: 'Subject' })` inside dialog |
+| Create/Save submit | `button[form="create-work-package-form"][type="submit"]` |
+| Cancel button | `button[data-close-dialog-id="create-work-package-dialog"]` |
+| Quick text filter | `#filter-by-text-input` |
+
+### Filter
+
+| File | Contains |
+|------|----------|
+| `frontend/src/app/features/work-packages/components/filters/quick-filter-by-text-input/quick-filter-by-text-input.html` | `<input id="filter-by-text-input" type="text">` — the quick text search box visible in the WP list toolbar |
 
 ---
 

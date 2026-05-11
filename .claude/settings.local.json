@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pipeline -v run:*)"
+      "Bash(pipeline -v run:*)",
+      "Bash(env -u CLAUDECODE:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(python -c:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(.venv/Scripts/pipeline:*)",
+      "Skill(run-pipeline)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

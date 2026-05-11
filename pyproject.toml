@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml>=6.0",
     "jinja2>=3.1",
     "click>=8.1",
+    "rich>=13.0",
 ]
 # Peer dependency (npm): @playwright/cli >=0.1.8
 # Install with: npm install -g @playwright/cli
