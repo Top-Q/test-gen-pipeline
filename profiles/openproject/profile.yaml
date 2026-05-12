@@ -9,7 +9,7 @@ base_url: "http://localhost:8090"
 auth:
   strategy: session_cookie
   username: admin
-  password: admin
+  password: adminadmin
 validation:
   lint_command: "npx eslint {files}"
   typecheck_command: "npx tsc --noEmit"

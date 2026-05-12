@@ -144,19 +144,41 @@ OpenProject uses GitHub's Primer design system. When source code uses Primer com
 
 **Critical note:** The WP list and table are **fully Angular-rendered** — there is no server-side ERB table. The Angular `<wp-table>` component writes rows directly to the DOM via JavaScript builders. Do NOT look for ERB table structure; read the Angular builder files and HTML templates listed below instead.
 
-### Create Dialog
+### Create Button (WP list toolbar) — Angular Route Navigation
+
+| File | Contains |
+|------|----------|
+| `frontend/src/app/features/work-packages/components/wp-buttons/wp-create-button/wp-create-button.html` | `<button class="button -primary add-work-package">` with directive `opTypesCreateDropdown`. Clicking opens a type-selection dropdown (`role="menuitem"` items) |
+| `frontend/src/app/features/work-packages/components/op-types-context-menu/op-types-context-menu.directive.ts` | Handles type item click: calls `$state.go('work-packages.partitioned.list.new', { type: type.id })` — **router navigation, NOT a dialog** |
+
+**CRITICAL — the toolbar create button does NOT open a dialog.** Selecting a type from the dropdown triggers Angular router navigation to state `work-packages.partitioned.list.new`. This renders `WorkPackageNewSplitViewComponent` in the right panel of the split view. There is no `create-work-package-dialog` involved.
+
+The correct create flow from the toolbar:
+1. Click `.add-work-package` → type dropdown appears (Primer ActionList, items have `role="menuitem"`)
+2. Click a type → the type item's `href` navigates to `/projects/<id>/work_packages/new?type=<type-id>`. The ARIA label pattern is `aria-labelledby="quick-add-menu-item--item-<type-name-lowercase>"`. Use `getByRole('menuitem', { name: 'Task', exact: true })`.
+3. The right panel renders a new-WP form (Angular split-view). URL changes to `.../work_packages/new?type=<id>`.
+4. Fill the subject using `#wp-new-inline-edit--field-subject` (input type=text, auto-focused)
+5. Save with `#work-packages--edit-actions-save` or cancel with `#work-packages--edit-actions-cancel`
+
+**Verified live DOM selectors for the split-view create form:**
+
+| Element | Selector |
+|---------|----------|
+| Subject input (auto-focused) | `#wp-new-inline-edit--field-subject` |
+| Save button | `#work-packages--edit-actions-save` |
+| Cancel button | `#work-packages--edit-actions-cancel` |
+| Type dropdown item (e.g. Task) | `getByRole('menuitem', { name: 'Task', exact: true })` |
+
+**Note:** The type dropdown items are NOT in the ARIA snapshot (they're in an Angular overlay). Use `getByRole('menuitem')` — Playwright can find them even when outside the ARIA tree.
+
+### Create Dialog (non-toolbar context)
+
+The `create-work-package-dialog` ViewComponent exists but is NOT triggered from the toolbar button. It may be used from board cards or other entry points.
 
 | File | Contains |
 |------|----------|
 | `app/components/work_packages/dialogs/create_dialog_component.html.erb` | Primer `Dialog` container: `id="create-work-package-dialog"`. Footer: Cancel button has `data-close-dialog-id="create-work-package-dialog"`; Create/Save submit button has `form="create-work-package-form"` and `type="submit"` |
-| `app/components/work_packages/dialogs/create_form_component.html.erb` | Form: `id="create-work-package-form"`, `data-controller="work-packages--create-dialog"`. Renders `WorkPackages::Dialogs::CreateForm` which holds the type selector, subject, and description fields |
-| `frontend/src/stimulus/controllers/dynamic/work-packages/create-dialog.controller.ts` | Stimulus controller identifier `work-packages--create-dialog`. Refreshes the form on type change via Turbo |
-
-### Create Button (WP list toolbar)
-
-| File | Contains |
-|------|----------|
-| `frontend/src/app/features/work-packages/components/wp-buttons/wp-create-button/wp-create-button.html` | `<button class="button -primary add-work-package">` with directive `opTypesCreateDropdown`. Clicking opens a type-selection dropdown (role `menuitem`); selecting a type opens `#create-work-package-dialog` |
+| `app/components/work_packages/dialogs/create_form_component.html.erb` | Form: `id="create-work-package-form"`, `data-controller="work-packages--create-dialog"` |
 
 ### Table & Rows (Angular, read these for DOM structure)
 
@@ -175,12 +197,11 @@ OpenProject uses GitHub's Primer design system. When source code uses Primer com
 | Specific WP row by ID | `tr[data-work-package-id="123"]` |
 | Subject cell in a row | `td.wp-table--cell-td.subject` inside the row |
 | Context menu button per row | `a.wp-table-context-menu-link` inside the row |
-| Create button | `.add-work-package` |
-| Create dialog | `[id="create-work-package-dialog"]` (role `dialog`) |
-| Type selector in dialog | inside the form, rendered by `CreateForm` — use ng-select/autocompleter pattern (`.ng-dropdown-panel .ng-option`) |
-| Subject input | `getByRole('textbox', { name: 'Subject' })` inside dialog |
-| Create/Save submit | `button[form="create-work-package-form"][type="submit"]` |
-| Cancel button | `button[data-close-dialog-id="create-work-package-dialog"]` |
+| Create button (toolbar) | `.add-work-package` |
+| Type dropdown items | `getByRole('menuitem', { name: 'Task', exact: true })` |
+| Subject input (split-view create form) | `#wp-new-inline-edit--field-subject` ✓ verified |
+| Save button (split-view create form) | `#work-packages--edit-actions-save` ✓ verified |
+| Cancel button (split-view create form) | `#work-packages--edit-actions-cancel` ✓ verified |
 | Quick text filter | `#filter-by-text-input` |
 
 ### Filter

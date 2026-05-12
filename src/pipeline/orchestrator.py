@@ -28,7 +28,7 @@ from .schemas.run_state import (
 )
 from .state import StateManager
 from .test_plan_parser import parse_test_plan
-from .validator import run_all_checks
+from .validator import run_all_checks, run_lint, run_typecheck
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,31 @@ class Orchestrator:
         else:
             logger.info("Site reachable: %s", base_url)
             self.reporter.on_preflight_check("site_reachable", True, base_url)
+
+        # 4. TypeScript compilation — must be clean before any agent runs
+        typecheck_result = await run_typecheck(self.profile)
+        state.validation_results.append(typecheck_result)
+        if not typecheck_result.passed:
+            first_error = typecheck_result.output.splitlines()[0] if typecheck_result.output else "unknown error"
+            logger.error("Preflight typecheck failed: %s", first_error)
+            self.reporter.on_preflight_check("typecheck", False, first_error)
+            checks_passed = False
+        else:
+            logger.info("Preflight typecheck passed")
+            self.reporter.on_preflight_check("typecheck", True, "OK")
+
+        # 5. ESLint on existing source directories — must be clean before any agent runs
+        source_dirs = [self.profile.po_base_dir, self.profile.test_dir]
+        lint_result = await run_lint(self.profile, source_dirs)
+        state.validation_results.append(lint_result)
+        if not lint_result.passed:
+            first_error = lint_result.output.splitlines()[0] if lint_result.output else "unknown error"
+            logger.error("Preflight lint failed: %s", first_error)
+            self.reporter.on_preflight_check("lint", False, first_error)
+            checks_passed = False
+        else:
+            logger.info("Preflight lint passed")
+            self.reporter.on_preflight_check("lint", True, "OK")
 
         if not checks_passed:
             return self.state_mgr.transition(state, PipelineState.FAILED)
@@ -336,7 +361,7 @@ class Orchestrator:
             # next attempt can pick up where it left off (it will see existing contracts).
             po_base = self.profile.resolve_path(self.profile.po_base_dir)
             any_po_created = any(
-                (po_base / comp).is_dir()
+                _find_po_dir(po_base, comp) is not None
                 for comp in self.test_plan.components
             )
             if any_po_created and state.pom_builder_attempts < MAX_POM_BUILDER_ATTEMPTS:

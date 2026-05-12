@@ -27,16 +27,23 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ existing_po_summary }}
 {% endif %}
 
-## Source Code Navigation (READ FIRST)
-
-{% if knowledge.get('source-code-map') %}
-{{ knowledge['source-code-map'] }}
-{% endif %}
-
-## Browser Investigation (Live DOM)
+## Browser Investigation (DO THIS FIRST — before reading any source code)
 
 {% if knowledge.get('browser-tools') %}
 {{ knowledge['browser-tools'] }}
+{% endif %}
+
+**Profile credentials for `playwright-cli` login:**
+- Base URL: `{{ profile.base_url }}`
+- Username: `{{ profile.auth.username }}`
+- Password: `{{ profile.auth.password }}`
+
+## Source Code Reference (Supplement Only)
+
+Use source code **only** to fill gaps that the live browser cannot answer: routing/URL patterns, API endpoints, Rails model attributes, or element IDs that are invisible in the ARIA tree. The browser is the ground truth for every locator.
+
+{% if knowledge.get('source-code-map') %}
+{{ knowledge['source-code-map'] }}
 {% endif %}
 
 ## Architecture Rules
@@ -84,8 +91,8 @@ Before completing, run these commands and fix any errors:
 
 ## Rules
 
-1. **Read source code before writing locators.** For every page you are building, read the relevant ERB views, Ruby components, and Stimulus controllers from the application source code. Extract element IDs, CSS classes, data attributes, and ARIA attributes from the actual source — do not guess locators from naming conventions alone.
-2. **After reading source code, use `playwright-cli` to take a snapshot of each page you're building POs for.** Compare the live ARIA tree against what you derived from source — fix any discrepancies before writing locators.
+1. **Take a `playwright-cli` snapshot before writing any locator.** Navigate to each page in the running app and capture the live ARIA tree. Derive every locator from what the snapshot actually shows — not from file names, source code inference, or naming conventions.
+2. **Source code answers navigation questions only — never locator questions.** Use source code to find: the correct URL to navigate to, which HTTP routes exist, Angular state names, Rails model attribute names. Do NOT read source code to find element IDs or CSS classes and then assume they match the live DOM — they may differ at runtime. If you need an element's ID, find it via `playwright-cli eval "document.querySelector('.visible-class').id"` on the live page.
 3. All page objects extend `BasePage<T>` with own type as generic parameter
 4. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
 5. Assertions belong in tests only — page objects NEVER import `expect`

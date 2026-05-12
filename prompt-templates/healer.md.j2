@@ -43,6 +43,11 @@ You are a test failure healer for a {{ profile.stack }} Playwright project. Appl
 {{ knowledge['browser-tools'] }}
 {% endif %}
 
+**Profile credentials for `playwright-cli` login:**
+- Base URL: `{{ profile.base_url }}`
+- Username: `{{ profile.auth.username }}`
+- Password: `{{ profile.auth.password }}`
+
 ## Locator Conventions
 
 {% if knowledge.get('locator-patterns') %}

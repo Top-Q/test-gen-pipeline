@@ -10,7 +10,13 @@
       "Bash(.venv/Scripts/python:*)",
       "Bash(.venv/Scripts/pipeline:*)",
       "Skill(run-pipeline)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git checkout:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx playwright-cli:*)",
+      "Bash(npx playwright-cli click:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

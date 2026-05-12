@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 POM_BUILDER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 POM_BUILDER_MODEL = "claude-sonnet-4-20250514"
-POM_BUILDER_MAX_TURNS = 30
+POM_BUILDER_MAX_TURNS = 60
 
 
 class PomBuilderAgent:

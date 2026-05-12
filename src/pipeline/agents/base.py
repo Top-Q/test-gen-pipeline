@@ -137,16 +137,20 @@ class AgentRunner:
                                     )
 
                             elif isinstance(block, ToolResultBlock):
+                                content_str = (
+                                    block.content
+                                    if isinstance(block.content, str)
+                                    else str(block.content)
+                                ) or ""
+                                # Append error tool results to result_text so they are
+                                # stored in AgentInvocation and visible in artifacts.
+                                if block.is_error and content_str:
+                                    result_text += f"\n[TOOL_ERROR: {content_str[:2000]}]\n"
                                 if reporter:
-                                    content_str = (
-                                        block.content
-                                        if isinstance(block.content, str)
-                                        else str(block.content)[:500]
-                                    ) or ""
                                     reporter.on_agent_tool_result(
                                         agent_name,
                                         "",
-                                        content_str,
+                                        content_str[:500],
                                         bool(block.is_error),
                                     )
 
@@ -173,9 +177,18 @@ class AgentRunner:
 
             except Exception as e:
                 logger.error("Agent %s failed: %s", agent_name, e)
-                # Preserve whatever the agent output before the exception so the
-                # artifact contains actionable context rather than just "exit code 1".
-                failure_suffix = f"\n[FAILED: {e}]"
+                # Detect max_turns exhaustion for a clearer error message.
+                if turns >= max_turns:
+                    failure_suffix = (
+                        f"\n[FAILED: Max turns ({max_turns}) reached — agent ran out of steps "
+                        f"before completing. Consider increasing max_turns for this agent.]"
+                    )
+                    logger.error(
+                        "Agent %s exhausted max_turns=%d after %d turns",
+                        agent_name, max_turns, turns,
+                    )
+                else:
+                    failure_suffix = f"\n[FAILED: {e}]"
                 return AgentResult(
                     agent_name=agent_name,
                     success=False,
