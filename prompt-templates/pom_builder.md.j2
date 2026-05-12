@@ -27,29 +27,20 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ existing_po_summary }}
 {% endif %}
 
-## Browser Investigation (DO THIS FIRST — before reading any source code)
+## DOM Investigation Report
 
-{% if knowledge.get('browser-tools') %}
-{{ knowledge['browser-tools'] }}
+The Investigator agent has already explored the site. Use the report below as the
+**sole source of truth for locators** — do not open a browser or run dom-inspect.
+
+{% if dom_investigation %}
+{{ dom_investigation }}
+{% else %}
+*(No investigation report available — derive locators from source code and existing patterns.)*
 {% endif %}
 
-**Profile credentials for `dom-inspect` login:**
-- Base URL: `{{ profile.base_url }}`
-- Username: `{{ profile.auth.username }}`
-- Password: `{{ profile.auth.password }}`
+## Source Code Reference (Navigation Only)
 
-**Profile dom_inspector config** — write to `/tmp/di-config.json` before opening the browser:
-
-```bash
-cat > /tmp/di-config.json << 'DICONFIG'
-{{ profile.dom_inspector.model_dump_json(indent=2) }}
-DICONFIG
-dom-inspect open --config /tmp/di-config.json
-```
-
-## Source Code Reference (Supplement Only)
-
-Use source code **only** to fill gaps that the live browser cannot answer: routing/URL patterns, API endpoints, Rails model attributes, or element IDs that are invisible in the ARIA tree. The browser is the ground truth for every locator.
+Use source code **only** to answer navigation questions: routing/URL patterns, API endpoints, Rails model attributes. The investigation report contains validated locator match counts; trust those.
 
 {% if knowledge.get('source-code-map') %}
 {{ knowledge['source-code-map'] }}
@@ -100,8 +91,8 @@ Before completing, run these commands and fix any errors:
 
 ## Rules
 
-1. **Run `dom-inspect snapshot` (and `dom-inspect aria`) before writing any locator.** Navigate to each page in the running app. `snapshot` surfaces `id`, `data-qa-selector`, `data-testid`, and other DOM attributes directly. `aria` gives accessible names for `getByRole()` locators. Derive every locator from what these commands actually show — not from file names, source code inference, or naming conventions.
-2. **Source code answers navigation questions only — never locator questions.** Use source code to find: the correct URL to navigate to, which HTTP routes exist, Angular state names, Rails model attribute names. Do NOT read source code to find element IDs or CSS classes and then assume they match the live DOM — they may differ at runtime. If you need to validate a selector, use `dom-inspect locate '<selector>'` — it shows match count and exits 1 if broken.
+1. **Use the DOM Investigation Report above as the sole source for every locator.** Do NOT open a browser or run `dom-inspect`. The report was produced by the Investigator agent with validated match counts — trust it.
+2. **Source code answers navigation questions only.** Use source code to find: the correct URL to navigate to, which HTTP routes exist, Angular state names, Rails model attribute names. The investigation report contains validated locator match counts; trust those instead of source-code inference.
 3. All page objects extend `BasePage<T>` with own type as generic parameter
 4. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
 5. Assertions belong in tests only — page objects NEVER import `expect`

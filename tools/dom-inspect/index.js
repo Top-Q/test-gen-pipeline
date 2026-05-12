@@ -16,6 +16,8 @@ require('./commands/snapshot')(program);
 require('./commands/aria')(program);
 require('./commands/locate')(program);
 require('./commands/click')(program);
+require('./commands/press')(program);
+require('./commands/wait')(program);
 require('./commands/fill')(program);
 require('./commands/save-state')(program);
 require('./commands/clear-context')(program);

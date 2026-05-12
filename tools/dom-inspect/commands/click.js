@@ -6,7 +6,8 @@ module.exports = function (program) {
   program
     .command('click <selector>')
     .description('Click an element matching the selector')
-    .action(async (selector) => {
+    .option('--force', 'Bypass visibility/actionability checks (force click)')
+    .action(async (selector, options) => {
       const session = readSession();
       if (!session) {
         process.stderr.write('No active session. Run `dom-inspect open` first.\n');
@@ -14,8 +15,14 @@ module.exports = function (program) {
       }
       try {
         const { browser, page } = await getPageFromSession(session);
-        await page.click(selector);
-        await browser.disconnect();
+        const loc = page.locator(selector).first();
+        if (options.force) {
+          await loc.click({ force: true });
+        } else {
+          await loc.scrollIntoViewIfNeeded();
+          await loc.click();
+        }
+        await browser.close();
         console.log(`Clicked: ${selector}`);
       } catch (err) {
         process.stderr.write(`Error: ${err.message}\n`);

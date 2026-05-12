@@ -11,13 +11,14 @@ CSS-selector and data-attribute locators. Always verify against the real page.
 
 | Command | Description |
 |---------|-------------|
-| `dom-inspect open [--state <f>] [--config <f>]` | Launch a browser; optionally restore auth state |
+| `dom-inspect open [--state <f>] [--config <f>] [--headless]` | Launch a browser; optionally restore auth state |
 | `dom-inspect connect <wsEndpoint>` | Attach to an external browser via CDP |
 | `dom-inspect goto <url>` | Navigate to a URL (waits for networkidle) |
-| `dom-inspect snapshot [--config <f>]` | Capture full DOM attribute tree |
-| `dom-inspect aria` | Capture ARIA accessibility tree |
+| `dom-inspect snapshot [--config <f>] [--selector <css>]` | Capture DOM attribute tree; `--selector` scopes to a subtree |
+| `dom-inspect aria [--selector <css>]` | Capture ARIA accessibility tree; `--selector` scopes to a subtree |
 | `dom-inspect locate <selector>` | Count matches + show tag/text/visible/enabled per match |
-| `dom-inspect click <selector>` | Click an element |
+| `dom-inspect click <selector> [--force]` | Click an element; `--force` bypasses visibility checks |
+| `dom-inspect press <selector> <key>` | Focus element and press a key (e.g., `Enter`, `Tab`, `Escape`) |
 | `dom-inspect fill <selector> <value>` | Fill an input field |
 | `dom-inspect save-state <file>` | Save auth/session state to a JSON file |
 | `dom-inspect clear-context` | Clear cookies, localStorage, sessionStorage |
@@ -52,6 +53,25 @@ div[id="main-menu"] (visible)
 Only elements matching `focus_selectors` or having at least one `include_attribute` are shown.
 Hidden elements are skipped by default.
 
+### Scoped snapshot — use `--selector` after interactions
+
+After clicking to open a dialog, dropdown, or menu, use `--selector` to snapshot only the new element. Full-page snapshots on complex pages produce thousands of lines and will be truncated:
+
+```bash
+# After opening a dialog or modal:
+dom-inspect snapshot --selector '[role="dialog"]'
+dom-inspect aria --selector '[role="dialog"]'
+
+# After opening a dropdown menu or listbox:
+dom-inspect snapshot --selector '[role="menu"]'
+dom-inspect snapshot --selector '[role="listbox"]'
+
+# After revealing a panel (use id or a stable class):
+dom-inspect snapshot --selector '#my-panel-id'
+```
+
+Use `dom-inspect locate '[role="dialog"]'` or `dom-inspect locate '[role="menu"]'` first if you are not sure what selector identifies the newly-appeared element.
+
 ## `aria` Output Format
 
 The `aria` command outputs the ARIA accessibility tree (same as `playwright-cli snapshot`):
@@ -77,6 +97,63 @@ button[data-qa-selector="create-wp"]: 2 match(es)
 
 Exit code **1** when 0 matches — use this to validate locators **before** writing them into PO files.
 
+## Valid Selector Syntax for `locate`, `click`, `fill`, `press`
+
+All selectors are passed to Playwright's `page.locator()`. Use **standard CSS** extended with Playwright pseudo-classes. Do **not** invent attribute syntax for text content.
+
+### Attribute selectors (preferred — stable, unique)
+
+```bash
+dom-inspect locate '#my-id'                          # by id
+dom-inspect locate '[data-qa-selector="create-wp"]'  # by data attribute
+dom-inspect locate '[aria-label="Close dialog"]'     # by aria-label attribute
+dom-inspect locate 'button[type="submit"]'           # tag + attribute
+dom-inspect locate 'input[name="login"]'             # tag + name attribute
+```
+
+### Text content (Playwright pseudo-classes)
+
+```bash
+dom-inspect locate 'button:has-text("Save")'         # button containing "Save" (partial, case-insensitive)
+dom-inspect locate 'li:has-text("Task")'             # list item containing "Task"
+dom-inspect locate '[role="menuitem"]:has-text("Task")'  # role attribute + text
+dom-inspect locate ':text("Save")'                   # any element whose trimmed text equals "Save"
+```
+
+### Role + text (combine attribute + pseudo-class)
+
+```bash
+dom-inspect locate '[role="option"]:has-text("Bug")'
+dom-inspect locate '[role="menuitem"]:has-text("Task")'
+dom-inspect locate 'a[role="menuitem"]:has-text("Task")'
+```
+
+### WRONG — do not use these
+
+```bash
+# WRONG: 'text' is not an HTML attribute — use :has-text() instead
+dom-inspect locate 'menuitem[text="Task"]'           # ✗ invalid
+dom-inspect locate '[text="Task"]'                   # ✗ invalid
+
+# WRONG: 'menuitem' is a role value, not an HTML tag
+dom-inspect locate 'menuitem'                        # ✗ no such HTML element
+
+# WRONG: :text() as a suffix on a combined selector is not valid Playwright syntax
+dom-inspect locate 'a[role="menuitem"]:text("Task")' # ✗ use :has-text() instead
+```
+
+### Visibility filter
+
+```bash
+dom-inspect locate 'button:has-text("Save"):visible'  # only visible matches
+```
+
+### XPath (when CSS is insufficient)
+
+```bash
+dom-inspect locate 'xpath=//button[@data-qa-selector="create-wp"]'
+```
+
 ## Config Injection
 
 The profile provides a `dom_inspector` configuration that filters noise for this specific app.
@@ -101,8 +178,10 @@ dom-inspect open
 dom-inspect goto <BASE_URL>/login
 dom-inspect fill '#username' '<AUTH_USERNAME>'
 dom-inspect fill '#password' '<AUTH_PASSWORD>'
-dom-inspect click 'input[type="submit"], button[type="submit"]'
+dom-inspect press '#password' Enter
 ```
+
+**Important:** Use `dom-inspect press '#password' Enter` to submit the login form — it is more reliable than clicking the submit button. The login submit element is `<input type="submit">`, not a `<button>`, so selectors like `button[type="submit"]` or `button:has-text("Sign in")` will match the wrong element (the navigation bar link).
 
 Wait for navigation, then save the session so you don't need to log in again:
 
@@ -133,7 +212,7 @@ source code — source code tells you where to navigate; the DOM snapshot tells 
    - `id` or `data-qa-selector` present → `locator('#id')` or `locator('[data-qa-selector="..."]')`
    - No stable attribute → `getByRole('button', { name: '...' })` from the ARIA snapshot
 8. **Validate before committing**: `dom-inspect locate '[data-qa-selector="your-selector"]'` — must exit 0 with 1 match
-9. Click buttons/links to reach deeper states (dialogs, menus), then re-snapshot to capture new elements
+9. Click buttons/links to reach deeper states (dialogs, menus), then use `dom-inspect snapshot --selector '[role="dialog"]'` (or the appropriate selector) to capture only the new element — do NOT re-snapshot the full page
 10. Repeat steps 4–9 for each page/component in the test plan
 11. `dom-inspect close` — close the browser when done
 
@@ -154,3 +233,5 @@ source code — source code tells you where to navigate; the DOM snapshot tells 
 - `dom-inspect locate` exit code 1 = 0 matches → locator is broken; use as pre-commit check
 - The session persists across Bash calls — no need to reopen the browser each time
 - For Angular overlays/CDK portals: use `dom-inspect aria` — they appear even when CSS-hidden
+- **After clicking to open a dialog/menu, use `--selector` to scope the snapshot** — full-page snapshots on complex apps are large and will be truncated by the shell; `dom-inspect snapshot --selector '[role="dialog"]'` captures only what changed
+- If `snapshot --selector` returns `[snapshot: no element matched selector "..."]`, run `dom-inspect locate '[role="dialog"]'` to find the correct selector for the newly-appeared element

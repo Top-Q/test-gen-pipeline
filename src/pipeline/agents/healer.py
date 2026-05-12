@@ -11,9 +11,9 @@ from .base import AgentResult, AgentRunner
 if TYPE_CHECKING:
     from ..reporter import PipelineReporter
 
-HEALER_TOOLS = ["Read", "Edit", "Bash", "Glob", "Grep"]
+HEALER_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 HEALER_MODEL = "claude-sonnet-4-20250514"
-HEALER_MAX_TURNS = 8
+HEALER_MAX_TURNS = 40
 
 
 class HealerAgent:
@@ -34,6 +34,7 @@ class HealerAgent:
         error_output: str,
         failure_category: str,
         relevant_files: list[str],
+        test_files: list[str] | None = None,
         permission_mode: str = "bypassPermissions",
     ) -> AgentResult:
         """Patch files to fix the described test failure."""
@@ -41,12 +42,19 @@ class HealerAgent:
             error_output=error_output,
             failure_category=failure_category,
             relevant_files=relevant_files,
+            test_files=test_files or [],
         )
 
+        files_arg = " ".join(f'"{f}"' for f in (test_files or []))
+        run_cmd = f"npx playwright test {files_arg} --reporter=json" if files_arg else "npx playwright test --reporter=json"
+
         prompt = (
-            "Fix the test failure described in the system prompt. "
-            "Apply the minimal patch needed. Do NOT refactor or add features. "
-            "After patching, run lint and typecheck to verify correctness."
+            "Follow the Required Workflow in the system prompt exactly. "
+            "Step 1: Diagnose from the Error Output and error-context.md artifacts — "
+            "do NOT re-run the tests. "
+            "Step 2: Fix the code. "
+            "Step 3: Use dom-inspect only if the artifacts lack enough info. "
+            f"Step 4: Validate with lint and typecheck, then confirm with: {run_cmd}"
         )
 
         return await self.runner.invoke(

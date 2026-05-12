@@ -15,13 +15,9 @@ module.exports = function (program) {
       }
       try {
         const browser = await chromium.connectOverCDP(session.wsEndpoint);
-        if (session.ownsBrowser) {
-          await browser.close();
-          console.log('Browser closed.');
-        } else {
-          await browser.disconnect();
-          console.log('Disconnected from browser (browser still running for its owner).');
-        }
+        // browser.close() over CDP sends Browser.close which terminates the Chromium process
+        await browser.close();
+        console.log('Browser closed.');
       } catch (err) {
         // Browser may already be gone — still clean up the session
         process.stderr.write(`Warning: could not connect to browser: ${err.message}\n`);

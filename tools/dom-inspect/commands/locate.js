@@ -20,7 +20,7 @@ module.exports = function (program) {
         console.log(`${selector}: ${count} match(es)`);
 
         if (count === 0) {
-          await browser.disconnect();
+          await browser.close();
           process.exit(1);
         }
 
@@ -34,7 +34,7 @@ module.exports = function (program) {
           console.log(`  [${i}] tag=${tag}, text="${text}", visible=${visible}, enabled=${enabled}`);
         }
 
-        await browser.disconnect();
+        await browser.close();
       } catch (err) {
         process.stderr.write(`Error: ${err.message}\n`);
         process.exit(1);

@@ -15,7 +15,7 @@ module.exports = function (program) {
       try {
         const { browser, context } = await getPageFromSession(session);
         await context.storageState({ path: file });
-        await browser.disconnect();
+        await browser.close();
         console.log(`Auth state saved to: ${file}`);
       } catch (err) {
         process.stderr.write(`Error: ${err.message}\n`);

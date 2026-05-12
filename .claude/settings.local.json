@@ -18,7 +18,15 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(node -e:*)",
-      "Bash(node index.js:*)"
+      "Bash(node index.js:*)",
+      "Bash(pipeline --help:*)",
+      "Bash(pipeline investigate --help:*)",
+      "Bash(pipeline build-pom:*)",
+      "Bash(npm install:*)",
+      "Bash(npx playwright:*)",
+      "Bash(dom-inspect:*)",
+      "Bash(echo:*)",
+      "Bash(node:*)"
     ]
   }
 }

@@ -32,8 +32,8 @@ _ROUTING: dict[FailureCategory, str] = {
     FailureCategory.TIMEOUT: "healer",
     FailureCategory.LOCATOR_NOT_FOUND: "healer",
     FailureCategory.ASSERTION_MISMATCH: "healer",
-    FailureCategory.MISSING_METHOD: "pom_builder",
-    FailureCategory.IMPORT_ERROR: "pom_builder",
+    FailureCategory.MISSING_METHOD: "healer",
+    FailureCategory.IMPORT_ERROR: "healer",
     FailureCategory.INFRASTRUCTURE: "abort",
     FailureCategory.UNKNOWN: "abort",
 }

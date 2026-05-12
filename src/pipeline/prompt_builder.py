@@ -39,16 +39,30 @@ class PromptBuilder:
         }
         return template.render(context)
 
+    def build_investigator_prompt(
+        self,
+        test_plan_summary: str,
+        output_path: str,
+    ) -> str:
+        """Build the system prompt for the Investigator agent."""
+        return self.render(
+            "investigator.md.j2",
+            test_plan_summary=test_plan_summary,
+            output_path=output_path,
+        )
+
     def build_pom_builder_prompt(
         self,
         test_plan_summary: str,
         existing_po_summary: str = "",
+        dom_investigation: str = "",
     ) -> str:
         """Build the system prompt for the POM Builder agent."""
         return self.render(
             "pom_builder.md.j2",
             test_plan_summary=test_plan_summary,
             existing_po_summary=existing_po_summary,
+            dom_investigation=dom_investigation,
         )
 
     def build_test_writer_prompt(
@@ -68,6 +82,7 @@ class PromptBuilder:
         error_output: str,
         failure_category: str,
         relevant_files: list[str],
+        test_files: list[str] | None = None,
     ) -> str:
         """Build the system prompt for the Healer agent."""
         return self.render(
@@ -75,4 +90,5 @@ class PromptBuilder:
             error_output=error_output,
             failure_category=failure_category,
             relevant_files=relevant_files,
+            test_files=test_files or [],
         )

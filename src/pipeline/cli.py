@@ -96,13 +96,63 @@ def run(
     sys.exit(0 if final_state.state == "done" else 1)
 
 
+@main.command("investigate")
+@click.option("--profile", "-p", required=True, help="Profile name")
+@click.option("--plan", required=True, type=click.Path(exists=True), help="Path to test plan .md file")
+@click.option("--output", required=True, type=click.Path(), help="Output path for the investigation report")
+@click.option("--ci", is_flag=True, help="CI mode")
+@click.option("--profiles-dir", default=None, type=click.Path(exists=True))
+@click.pass_context
+def investigate(
+    ctx: click.Context,
+    profile: str,
+    plan: str,
+    output: str,
+    ci: bool,
+    profiles_dir: str | None,
+) -> None:
+    """Run only the DOM Investigator step."""
+    from .profile import load_profile
+    from .prompt_builder import PromptBuilder
+    from .agents.investigator import InvestigatorAgent
+    from .test_plan_parser import parse_test_plan
+    from .orchestrator import _format_test_plan_summary
+
+    quiet = ctx.obj.get("quiet", False)
+    verbose = ctx.obj.get("verbose", False)
+    reporter = QuietReporter() if quiet else RichConsoleReporter(verbose=verbose)
+
+    profiles_path = Path(profiles_dir) if profiles_dir else None
+    prof = load_profile(profile, profiles_path)
+    test_plan = parse_test_plan(plan)
+    prompt_builder = PromptBuilder(prof)
+    agent = InvestigatorAgent(prof, prompt_builder, reporter=reporter)
+
+    summary = _format_test_plan_summary(test_plan)
+    output_path = str(Path(output).resolve())
+
+    permission = "bypassPermissions" if ci else "acceptEdits"
+    result = asyncio.run(agent.run(summary, output_path, permission))
+
+    click.echo(json.dumps({"success": result.success, "output": output_path}, indent=2))
+    sys.exit(0 if result.success else 1)
+
+
 @main.command("build-pom")
 @click.option("--profile", "-p", required=True, help="Profile name")
 @click.option("--plan", required=True, type=click.Path(exists=True), help="Path to test plan .md file")
 @click.option("--ci", is_flag=True, help="CI mode")
 @click.option("--profiles-dir", default=None, type=click.Path(exists=True))
+@click.option("--investigation", default=None, type=click.Path(exists=True), help="Path to DOM investigation report")
 @click.pass_context
-def build_pom(ctx: click.Context, profile: str, plan: str, ci: bool, profiles_dir: str | None) -> None:
+def build_pom(
+    ctx: click.Context,
+    profile: str,
+    plan: str,
+    ci: bool,
+    profiles_dir: str | None,
+    investigation: str | None,
+) -> None:
     """Run only the POM Builder step."""
     from .pom_contract_extractor import contracts_to_json, extract_contracts_from_dir
     from .profile import load_profile
@@ -126,8 +176,12 @@ def build_pom(ctx: click.Context, profile: str, plan: str, ci: bool, profiles_di
     existing = extract_contracts_from_dir(po_base, prof.project_root)
     existing_json = contracts_to_json(existing) if existing else ""
 
+    dom_investigation = ""
+    if investigation:
+        dom_investigation = Path(investigation).read_text(encoding="utf-8")
+
     permission = "bypassPermissions" if ci else "acceptEdits"
-    result = asyncio.run(agent.run(summary, existing_json, permission))
+    result = asyncio.run(agent.run(summary, existing_json, dom_investigation, permission))
 
     click.echo(json.dumps({"success": result.success, "files": result.files_modified}, indent=2))
     sys.exit(0 if result.success else 1)
@@ -226,6 +280,15 @@ def heal(ctx: click.Context, profile: str, run_id: str, ci: bool, profiles_dir: 
     last_test = state.test_results[-1] if state.test_results else None
     error_output = last_test.error_output if last_test else last_failure.message
 
+    # Enrich with Playwright's AI debugging artifacts (error-context.md)
+    from .orchestrator import _collect_error_context
+    error_context_content = _collect_error_context(prof.project_root)
+    if error_context_content:
+        error_output = error_output + "\n\n" + error_context_content
+
+    test_files = state.generated_test_files
+    click.echo(f"Healing test files: {test_files}", err=True)
+
     prompt_builder = PromptBuilder(prof)
     agent = HealerAgent(prof, prompt_builder, reporter=reporter)
 
@@ -234,6 +297,7 @@ def heal(ctx: click.Context, profile: str, run_id: str, ci: bool, profiles_dir: 
         error_output=error_output,
         failure_category=last_failure.category,
         relevant_files=last_failure.file_paths,
+        test_files=test_files,
         permission_mode=permission,
     ))
 

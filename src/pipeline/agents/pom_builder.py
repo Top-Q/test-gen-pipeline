@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 POM_BUILDER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 POM_BUILDER_MODEL = "claude-sonnet-4-20250514"
-POM_BUILDER_MAX_TURNS = 60
+POM_BUILDER_MAX_TURNS = 30
 
 
 class PomBuilderAgent:
@@ -33,12 +33,14 @@ class PomBuilderAgent:
         self,
         test_plan_summary: str,
         existing_po_summary: str = "",
+        dom_investigation: str = "",
         permission_mode: str = "bypassPermissions",
     ) -> AgentResult:
         """Generate PO/component files for the given test plan."""
         system_prompt = self.prompt_builder.build_pom_builder_prompt(
             test_plan_summary=test_plan_summary,
             existing_po_summary=existing_po_summary,
+            dom_investigation=dom_investigation,
         )
 
         prompt = (

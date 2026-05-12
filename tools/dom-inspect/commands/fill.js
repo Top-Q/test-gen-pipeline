@@ -15,7 +15,7 @@ module.exports = function (program) {
       try {
         const { browser, page } = await getPageFromSession(session);
         await page.fill(selector, value);
-        await browser.disconnect();
+        await browser.close();
         console.log(`Filled: ${selector}`);
       } catch (err) {
         process.stderr.write(`Error: ${err.message}\n`);

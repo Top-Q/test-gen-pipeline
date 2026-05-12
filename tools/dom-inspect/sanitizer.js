@@ -10,8 +10,8 @@
  * Only elements that match at least one focus_selector OR have at least one
  * include_attribute are emitted. Hidden elements are skipped unless show_hidden=true.
  */
-async function snapshot(page, config) {
-  return page.evaluate((cfg) => {
+async function snapshot(page, config, rootSelector = null) {
+  return page.evaluate(({ cfg, rootSel }) => {
     const {
       include_attributes,
       focus_selectors,
@@ -30,9 +30,10 @@ async function snapshot(page, config) {
 
     function isVisible(el) {
       const style = window.getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 || rect.height > 0;
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      // offsetWidth/offsetHeight measure layout dimensions regardless of scroll position
+      // or viewport clipping — reliable for elements below the fold or in scroll containers.
+      return el.offsetWidth > 0 || el.offsetHeight > 0;
     }
 
     function getIncludedAttrs(el) {
@@ -69,9 +70,9 @@ async function snapshot(page, config) {
       if (matchesAny(el, exclude_selectors)) return;
 
       const visible = isVisible(el);
-      if (!show_hidden && !visible) return;
 
-      if (isRelevant(el)) {
+      // Emit this element if relevant and (visible or show_hidden requested)
+      if (isRelevant(el) && (visible || show_hidden)) {
         const indent = '  '.repeat(depth);
         const tag = el.tagName.toLowerCase();
         const attrStr = getIncludedAttrs(el);
@@ -86,16 +87,24 @@ async function snapshot(page, config) {
         lines.push(`${indent}${tag}${attrStr}${textPart} (${vis})`);
       }
 
+      // Always walk children unless the element is truly display:none or excluded —
+      // a container with zero layout dimensions may still have visible children
+      // (e.g. turbo-frames while loading, scroll containers below the fold).
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none') return;
+
       for (const child of el.children) {
         walk(child, depth + 1);
       }
     }
 
-    if (document.body) {
-      walk(document.body, 0);
+    const root = rootSel ? document.querySelector(rootSel) : document.body;
+    if (!root) {
+      return `[snapshot: no element matched selector "${rootSel}"]`;
     }
+    walk(root, 0);
     return lines.join('\n');
-  }, config);
+  }, { cfg: config, rootSel: rootSelector });
 }
 
 module.exports = { snapshot };

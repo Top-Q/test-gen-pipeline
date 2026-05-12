@@ -279,26 +279,25 @@ class RichConsoleReporter:
                 print(f"    ERROR: {snippet}", file=sys.stderr)
 
     def on_agent_text(self, agent_name, text):
-        if not self.verbose:
+        stripped = text.strip()
+        if not stripped:
             return
-        # Show a short excerpt of agent reasoning
-        first_line = text.strip().split("\n")[0]
-        excerpt = _truncate(first_line, 100)
-        if excerpt:
-            if self._console:
-                self._print(f"    [dim italic]{excerpt}[/dim italic]")
-            else:
-                print(f"    > {excerpt}", file=sys.stderr)
+        if self._console:
+            # Render the full text; rich will word-wrap at terminal width
+            self._print(f"    [italic]{stripped}[/italic]")
+        else:
+            for line in stripped.splitlines():
+                print(f"    {line}", file=sys.stderr)
 
     def on_agent_thinking(self, agent_name, summary):
         if not self.verbose:
             return
-        # Show first sentence only
+        # ThinkingBlock is extended reasoning — only show in verbose mode
         first_sentence = summary.split(".")[0].strip()
         if first_sentence:
-            excerpt = _truncate(first_sentence, 100)
+            excerpt = _truncate(first_sentence, 120)
             if self._console:
-                self._print(f"    [dim]{excerpt}[/dim]")
+                self._print(f"    [dim](thinking) {excerpt}[/dim]")
             else:
                 print(f"    (thinking) {excerpt}", file=sys.stderr)
 

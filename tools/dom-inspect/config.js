@@ -14,7 +14,7 @@ const DEFAULTS = {
   exclude_selectors: [
     'script', 'style', 'svg', 'noscript', 'head'
   ],
-  max_depth: 8,
+  max_depth: 20,
   truncate_text: 60,
   show_hidden: false
 };

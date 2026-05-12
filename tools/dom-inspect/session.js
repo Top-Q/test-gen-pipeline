@@ -28,12 +28,13 @@ function deleteSession() {
 
 /**
  * Connect to the browser in the session and return { browser, context, page }.
- * Caller is responsible for calling browser.disconnect() when done.
+ * Caller is responsible for calling browser.close() when done.
  */
 async function getPageFromSession(session) {
   if (!session || !session.wsEndpoint) {
     throw new Error('No active session. Run `dom-inspect open` first.');
   }
+  // Both `open` (CDP via --remote-debugging-port) and `connect` (external CDP) use connectOverCDP.
   const browser = await chromium.connectOverCDP(session.wsEndpoint);
   const contexts = browser.contexts();
   const context = contexts.length > 0 ? contexts[0] : await browser.newContext();

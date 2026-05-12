@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from .agents.healer import HealerAgent, HEALER_MAX_TURNS, HEALER_MODEL
+from .agents.investigator import InvestigatorAgent, INVESTIGATOR_MAX_TURNS, INVESTIGATOR_MODEL
 from .agents.pom_builder import PomBuilderAgent, POM_BUILDER_MAX_TURNS, POM_BUILDER_MODEL
 from .agents.test_writer import TestWriterAgent, TEST_WRITER_MAX_TURNS, TEST_WRITER_MODEL
 from .classifier import classify_failure
@@ -33,10 +34,11 @@ from .validator import run_all_checks, run_lint, run_typecheck
 logger = logging.getLogger(__name__)
 
 # Guardrails
-MAX_TOTAL_AGENT_INVOCATIONS = 8
+MAX_TOTAL_AGENT_INVOCATIONS = 10
+MAX_INVESTIGATOR_ATTEMPTS = 1
 MAX_POM_BUILDER_ATTEMPTS = 3
 MAX_TEST_WRITER_ATTEMPTS = 3
-MAX_HEALER_ATTEMPTS = 2
+MAX_HEALER_ATTEMPTS = 3
 
 
 class Orchestrator:
@@ -61,6 +63,7 @@ class Orchestrator:
         self.prompt_builder = PromptBuilder(self.profile)
 
         # Agents — pass reporter through
+        self.investigator = InvestigatorAgent(self.profile, self.prompt_builder, self.reporter)
         self.pom_builder = PomBuilderAgent(self.profile, self.prompt_builder, self.reporter)
         self.test_writer = TestWriterAgent(self.profile, self.prompt_builder, self.reporter)
         self.healer = HealerAgent(self.profile, self.prompt_builder, self.reporter)
@@ -121,6 +124,8 @@ class Orchestrator:
                 return await self._analyze_plan(state)
             case PipelineState.CHECK_POM:
                 return await self._check_pom(state)
+            case PipelineState.INVESTIGATE_DOM:
+                return await self._investigate_dom(state)
             case PipelineState.BUILD_POM:
                 return await self._build_pom(state)
             case PipelineState.VALIDATE_POM:
@@ -270,10 +275,10 @@ class Orchestrator:
             self.reporter.on_state_change(
                 state.state,
                 PipelineState.CHECK_POM,
-                {"info": f"Missing PO: {', '.join(missing_components)} -> build_pom"},
+                {"info": f"Missing PO: {', '.join(missing_components)} -> investigate_dom"},
             )
             return await self._ensure_git_branch(
-                self.state_mgr.transition(state, PipelineState.BUILD_POM)
+                self.state_mgr.transition(state, PipelineState.INVESTIGATE_DOM)
             )
 
         logger.info("All PO directories exist, skipping to write_test")
@@ -304,6 +309,64 @@ class Orchestrator:
         self.state_mgr._persist(state)
         return state
 
+    async def _investigate_dom(self, state: RunState) -> RunState:
+        """Invoke the Investigator agent to capture DOM snapshots and validated locators."""
+        if shutil.which("dom-inspect") is None:
+            logger.error(
+                "dom-inspect is required for INVESTIGATE_DOM but was not found on PATH. "
+                "Install with: cd tools/dom-inspect && npm install && npm install -g ."
+            )
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        if state.investigator_attempts >= MAX_INVESTIGATOR_ATTEMPTS:
+            logger.error("Max Investigator attempts reached")
+            return self.state_mgr.transition(state, PipelineState.FAILED)
+
+        state.investigator_attempts += 1
+
+        self.reporter.on_state_change(
+            state.state,
+            PipelineState.INVESTIGATE_DOM,
+            {"attempt": state.investigator_attempts, "max_attempts": MAX_INVESTIGATOR_ATTEMPTS},
+        )
+        self.reporter.on_agent_start(
+            "investigator", INVESTIGATOR_MODEL, INVESTIGATOR_MAX_TURNS,
+            state.investigator_attempts, MAX_INVESTIGATOR_ATTEMPTS,
+        )
+
+        summary = _format_test_plan_summary(self.test_plan)
+        output_path = str(self.state_mgr.artifacts_dir / state.run_id / "dom_investigation.md")
+
+        result = await self.investigator.run(
+            test_plan_summary=summary,
+            output_path=output_path,
+            permission_mode=self.permission_mode,
+        )
+
+        self.reporter.on_agent_complete(
+            "investigator", result.success, result.files_modified,
+            result.cost_usd, result.turns,
+        )
+
+        state.record_invocation(AgentInvocation(
+            agent_name="investigator",
+            state=state.state,
+            success=result.success,
+            files_modified=result.files_modified,
+            error=result.result_text if not result.success else "",
+            result_text=result.result_text,
+            cost_usd=result.cost_usd,
+            turns=result.turns,
+            tool_calls=result.tool_calls,
+        ))
+
+        if result.success:
+            state.dom_investigation_path = output_path
+            return self.state_mgr.transition(state, PipelineState.BUILD_POM)
+
+        logger.error("Investigator failed — no retry.")
+        return self.state_mgr.transition(state, PipelineState.FAILED)
+
     async def _build_pom(self, state: RunState) -> RunState:
         """Invoke the POM Builder agent."""
         if state.pom_builder_attempts >= MAX_POM_BUILDER_ATTEMPTS:
@@ -330,9 +393,20 @@ class Orchestrator:
         existing_contracts = extract_contracts_from_dir(po_base, self.profile.project_root)
         existing_summary = contracts_to_json(existing_contracts) if existing_contracts else ""
 
+        # Load investigation report if available
+        dom_investigation = ""
+        if state.dom_investigation_path:
+            investigation_file = Path(state.dom_investigation_path)
+            if investigation_file.exists():
+                dom_investigation = investigation_file.read_text(encoding="utf-8")
+                logger.info("Loaded DOM investigation report: %s", state.dom_investigation_path)
+            else:
+                logger.warning("DOM investigation path set but file not found: %s", state.dom_investigation_path)
+
         result = await self.pom_builder.run(
             test_plan_summary=summary,
             existing_po_summary=existing_summary,
+            dom_investigation=dom_investigation,
             permission_mode=self.permission_mode,
         )
 
@@ -596,8 +670,6 @@ class Orchestrator:
         match classified.route_to:
             case "healer":
                 return self.state_mgr.transition(state, PipelineState.HEAL)
-            case "pom_builder":
-                return self.state_mgr.transition(state, PipelineState.BUILD_POM)
             case "abort" | _:
                 return self.state_mgr.transition(state, PipelineState.FAILED)
 
@@ -626,10 +698,16 @@ class Orchestrator:
         last_test = state.test_results[-1] if state.test_results else None
         error_output = last_test.error_output if last_test else last_failure.message
 
+        # Enrich error context with Playwright's AI debugging artifacts
+        error_context_content = _collect_error_context(self.profile.project_root)
+        if error_context_content:
+            error_output = error_output + "\n\n" + error_context_content
+
         result = await self.healer.run(
             error_output=error_output,
             failure_category=last_failure.category,
             relevant_files=last_failure.file_paths,
+            test_files=state.generated_test_files,
             permission_mode=self.permission_mode,
         )
 
@@ -787,6 +865,33 @@ def _extract_errors_from_json_report(report: dict) -> str:
 
     _walk_suites(report.get("suites", []))
     return "\n".join(messages[:10])  # Limit to first 10 unique errors
+
+
+def _collect_error_context(project_root: Path) -> str:
+    """Collect Playwright error-context.md files from test-results/.
+
+    Playwright (v1.49+) writes an error-context.md file for every failed test.
+    It contains the error message, the full ARIA page snapshot at failure time,
+    and the test source with the failing line highlighted — designed for AI assistants.
+    """
+    test_results_dir = project_root / "test-results"
+    if not test_results_dir.is_dir():
+        return ""
+
+    sections: list[str] = []
+    for context_file in sorted(test_results_dir.rglob("error-context.md")):
+        try:
+            content = context_file.read_text(encoding="utf-8", errors="replace")
+            # Use the parent directory name as a header (test name slug)
+            label = context_file.parent.name
+            sections.append(f"## Playwright error-context: {label}\n\n{content}")
+        except OSError:
+            pass
+
+    if not sections:
+        return ""
+
+    return "---\n# Playwright Test Failure Artifacts\n\n" + "\n\n---\n\n".join(sections)
 
 
 def _format_test_plan_summary(test_plan) -> str:

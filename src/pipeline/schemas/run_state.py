@@ -14,6 +14,7 @@ class PipelineState(StrEnum):
     PREFLIGHT = "preflight"
     ANALYZE_PLAN = "analyze_plan"
     CHECK_POM = "check_pom"
+    INVESTIGATE_DOM = "investigate_dom"
     BUILD_POM = "build_pom"
     VALIDATE_POM = "validate_pom"
     WRITE_TEST = "write_test"
@@ -84,6 +85,8 @@ class RunState(BaseModel):
     validation_results: list[ValidationResult] = []
     test_results: list[TestResult] = []
     failure_history: list[FailureRecord] = []
+    dom_investigation_path: str = ""
+    investigator_attempts: int = 0
     pom_builder_attempts: int = 0
     test_writer_attempts: int = 0
     healer_attempts: int = 0
