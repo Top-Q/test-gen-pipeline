@@ -67,7 +67,7 @@ class Orchestrator:
 
     async def run(self, resume_state: RunState | None = None) -> RunState:
         """Execute the pipeline to completion or failure."""
-        self._check_playwright_cli()
+        self._check_dom_inspect()
 
         state = self.state_mgr.create_run(
             profile_name=self.profile.name,
@@ -103,12 +103,12 @@ class Orchestrator:
         return state
 
     @staticmethod
-    def _check_playwright_cli() -> None:
-        """Warn if playwright-cli is not available on PATH."""
-        if shutil.which("playwright-cli") is None:
+    def _check_dom_inspect() -> None:
+        """Warn if dom-inspect is not available on PATH."""
+        if shutil.which("dom-inspect") is None:
             logger.warning(
-                "playwright-cli not found on PATH. "
-                "Install with: npm install -g @playwright/cli  "
+                "dom-inspect not found on PATH. "
+                "Install with: cd tools/dom-inspect && npm install && npm install -g .  "
                 "Agents will not be able to inspect the live DOM."
             )
 

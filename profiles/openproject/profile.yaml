@@ -29,4 +29,40 @@ validation:
       file_glob: "src/po/openproject/**/*.ts"
       must_match: true
       error_message: "Every page/component must implement waitForLoad()"
+dom_inspector:
+  include_attributes:
+    - id
+    - data-qa-selector
+    - data-testid
+    - data-test-selector
+    - role
+    - aria-label
+    - aria-labelledby
+    - name
+    - type
+    - href
+    - placeholder
+    - title
+  focus_selectors:
+    - "[data-qa-selector]"
+    - "[data-test-selector]"
+    - "[id]"
+    - "button"
+    - "input"
+    - "a[href]"
+    - "select"
+    - "textarea"
+    - "[role=menuitem]"
+    - "[aria-haspopup]"
+  exclude_selectors:
+    - "script"
+    - "style"
+    - "svg"
+    - "noscript"
+    - "head"
+    - "op-icon"
+    - "spot-icon"
+  max_depth: 10
+  truncate_text: 80
+  show_hidden: false
 knowledge_files: {}

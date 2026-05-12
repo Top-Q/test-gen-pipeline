@@ -33,10 +33,19 @@ These POs already exist. Do NOT recreate them — extend or reuse as needed:
 {{ knowledge['browser-tools'] }}
 {% endif %}
 
-**Profile credentials for `playwright-cli` login:**
+**Profile credentials for `dom-inspect` login:**
 - Base URL: `{{ profile.base_url }}`
 - Username: `{{ profile.auth.username }}`
 - Password: `{{ profile.auth.password }}`
+
+**Profile dom_inspector config** — write to `/tmp/di-config.json` before opening the browser:
+
+```bash
+cat > /tmp/di-config.json << 'DICONFIG'
+{{ profile.dom_inspector.model_dump_json(indent=2) }}
+DICONFIG
+dom-inspect open --config /tmp/di-config.json
+```
 
 ## Source Code Reference (Supplement Only)
 
@@ -91,8 +100,8 @@ Before completing, run these commands and fix any errors:
 
 ## Rules
 
-1. **Take a `playwright-cli` snapshot before writing any locator.** Navigate to each page in the running app and capture the live ARIA tree. Derive every locator from what the snapshot actually shows — not from file names, source code inference, or naming conventions.
-2. **Source code answers navigation questions only — never locator questions.** Use source code to find: the correct URL to navigate to, which HTTP routes exist, Angular state names, Rails model attribute names. Do NOT read source code to find element IDs or CSS classes and then assume they match the live DOM — they may differ at runtime. If you need an element's ID, find it via `playwright-cli eval "document.querySelector('.visible-class').id"` on the live page.
+1. **Run `dom-inspect snapshot` (and `dom-inspect aria`) before writing any locator.** Navigate to each page in the running app. `snapshot` surfaces `id`, `data-qa-selector`, `data-testid`, and other DOM attributes directly. `aria` gives accessible names for `getByRole()` locators. Derive every locator from what these commands actually show — not from file names, source code inference, or naming conventions.
+2. **Source code answers navigation questions only — never locator questions.** Use source code to find: the correct URL to navigate to, which HTTP routes exist, Angular state names, Rails model attribute names. Do NOT read source code to find element IDs or CSS classes and then assume they match the live DOM — they may differ at runtime. If you need to validate a selector, use `dom-inspect locate '<selector>'` — it shows match count and exits 1 if broken.
 3. All page objects extend `BasePage<T>` with own type as generic parameter
 4. All components extend `BaseComponent<T>`, scoped to `rootComponent` locator
 5. Assertions belong in tests only — page objects NEVER import `expect`

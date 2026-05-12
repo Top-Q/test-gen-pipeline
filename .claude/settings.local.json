@@ -16,7 +16,9 @@
       "Bash(npx playwright-cli:*)",
       "Bash(npx playwright-cli click:*)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(node -e:*)",
+      "Bash(node index.js:*)"
     ]
   }
 }

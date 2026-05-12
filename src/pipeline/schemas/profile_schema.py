@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class AuthConfig(BaseModel):
@@ -32,6 +32,25 @@ class ValidationConfig(BaseModel):
     structural_checks: list[StructuralCheck] = []
 
 
+class DomInspectorConfig(BaseModel):
+    """Configuration for the dom-inspect CLI tool's DOM snapshot output."""
+
+    include_attributes: list[str] = [
+        "id", "data-qa-selector", "data-testid", "role",
+        "aria-label", "name", "type", "href", "placeholder",
+    ]
+    focus_selectors: list[str] = [
+        "[data-qa-selector]", "[id]", "button",
+        "input", "a[href]", "select", "textarea",
+    ]
+    exclude_selectors: list[str] = [
+        "script", "style", "svg", "noscript", "head",
+    ]
+    max_depth: int = 8
+    truncate_text: int = 60
+    show_hidden: bool = False
+
+
 class ProfileConfig(BaseModel):
     """Full profile configuration for a customer project."""
 
@@ -45,6 +64,7 @@ class ProfileConfig(BaseModel):
     base_url: str
     auth: AuthConfig = AuthConfig(strategy="session_cookie")
     validation: ValidationConfig = ValidationConfig()
+    dom_inspector: DomInspectorConfig = Field(default_factory=DomInspectorConfig)
     knowledge_files: dict[str, str] = {}  # role name → file path within profile dir
 
     @field_validator("project_root")
