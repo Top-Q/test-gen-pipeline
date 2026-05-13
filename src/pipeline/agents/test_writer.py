@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 TEST_WRITER_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 TEST_WRITER_MODEL = "claude-sonnet-4-20250514"
-TEST_WRITER_MAX_TURNS = 20
+TEST_WRITER_MAX_TURNS = 40
 
 
 class TestWriterAgent:

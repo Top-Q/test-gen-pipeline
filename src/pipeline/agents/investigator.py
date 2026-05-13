@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 INVESTIGATOR_TOOLS = ["Bash", "Write", "Read"]
 INVESTIGATOR_MODEL = "claude-sonnet-4-20250514"
-INVESTIGATOR_MAX_TURNS = 60
+INVESTIGATOR_MAX_TURNS = 90
 
 
 class InvestigatorAgent:
